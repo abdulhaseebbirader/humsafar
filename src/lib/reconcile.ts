@@ -139,7 +139,10 @@ function parseVendor(rows: string[][]) {
       for (const row of rows.slice(adviceHeaderIndex + 1)) {
         const ticket = cellAt(row, 0);
         const pnr = cellAt(row, pnrColumn);
-        if (!ticket || !pnr || !/\d/.test(pnr) || resolvedFareColumn < 0) continue;
+        const fareValue = resolvedFareColumn >= 0 ? cellAt(row, resolvedFareColumn) : "";
+        // RedBus PNRs may be numeric or alphanumeric; do not require the PNR
+        // column to contain only digits. The fare column is the row marker.
+        if (!ticket || !pnr || !/\d/.test(pnr) || !/\d/.test(fareValue) || resolvedFareColumn < 0) continue;
         flatTickets.push({
           ticket,
           pnr,
