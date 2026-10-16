@@ -3,7 +3,7 @@ import { reconcileParsedExcel, type ExcelSummary } from "@/lib/reconcile";
 
 export const maxDuration = 60;
 
-const MAX_PDF_BYTES = 20 * 1024 * 1024;
+const MAX_CSV_BYTES = 20 * 1024 * 1024;
 
 export async function POST(request: NextRequest) {
   let form: FormData;
@@ -13,12 +13,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Expected a multipart form upload." }, { status: 400 });
   }
 
-  const pdf = form.get("pdf");
-  if (!(pdf instanceof File) || !pdf.name.toLowerCase().endsWith(".pdf")) {
-    return NextResponse.json({ error: "The payment advice must be a PDF file." }, { status: 400 });
+  const csv = form.get("csv");
+  if (!(csv instanceof File) || !csv.name.toLowerCase().endsWith(".csv")) {
+    return NextResponse.json({ error: "The vendor invoice must be a CSV file." }, { status: 400 });
   }
-  if (pdf.size > MAX_PDF_BYTES) {
-    return NextResponse.json({ error: "The payment advice PDF is larger than 20 MB." }, { status: 400 });
+  if (csv.size > MAX_CSV_BYTES) {
+    return NextResponse.json({ error: "The vendor invoice CSV is larger than 20 MB." }, { status: 400 });
   }
 
   let summary: ExcelSummary;
@@ -32,9 +32,9 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const buffer = Buffer.from(await pdf.arrayBuffer());
+    const buffer = Buffer.from(await csv.arrayBuffer());
     const excelName = typeof form.get("excelName") === "string" ? String(form.get("excelName")) : "browser-normalized Excel export";
-    const result = await reconcileParsedExcel(buffer, summary, pdf.name, excelName);
+    const result = await reconcileParsedExcel(buffer, summary, csv.name, excelName);
     return NextResponse.json(result);
   } catch (error) {
     console.error("[reconcile] failed", error);

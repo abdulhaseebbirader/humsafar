@@ -23,17 +23,17 @@ function FileBox({
   file,
   onChange,
 }: {
-  kind: "pdf" | "excel";
+  kind: "csv" | "excel";
   file: File | null;
   onChange: (f: File | null) => void;
 }) {
-  const isPdf = kind === "pdf";
+  const isCsv = kind === "csv";
   const [dragging, setDragging] = useState(false);
-  const accept = isPdf
-    ? ".pdf,application/pdf"
+  const accept = isCsv
+    ? ".csv,text/csv"
     : ".xls,.xlsx,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
   const matches = (f: File | undefined | null) =>
-    !!f && (isPdf ? /\.pdf$/i.test(f.name) : /\.xlsx?$/i.test(f.name));
+    !!f && (isCsv ? /\.csv$/i.test(f.name) : /\.xlsx?$/i.test(f.name));
   return (
     <label
       className={`file-box ${file ? "is-ready" : ""} ${dragging ? "is-dragging" : ""}`}
@@ -50,10 +50,10 @@ function FileBox({
       }}
     >
       <input type="file" accept={accept} onChange={(e) => onChange(e.target.files?.[0] ?? null)} />
-      <div className="file-icon">{isPdf ? <FileText size={22} /> : <FileSpreadsheet size={22} />}</div>
+      <div className="file-icon">{isCsv ? <FileSpreadsheet size={22} /> : <FileSpreadsheet size={22} />}</div>
       <div className="file-copy">
-        <strong>{isPdf ? "Payment advice PDF" : "Detailed Excel export"}</strong>
-        <span>{file ? file.name : isPdf ? "Drop the settlement advice here" : "Drop the .xls or .xlsx here"}</span>
+        <strong>{isCsv ? "Vendor CSV invoice" : "Client Excel invoice"}</strong>
+        <span>{file ? file.name : isCsv ? "Drop the vendor .csv here" : "Drop the client .xls or .xlsx here"}</span>
       </div>
       <div className="file-action">{file ? <Check size={18} /> : <UploadCloud size={18} />}</div>
     </label>
@@ -92,7 +92,7 @@ function ResultSkeleton() {
 }
 
 export default function Home() {
-  const [pdf, setPdf] = useState<File | null>(null);
+  const [csv, setCsv] = useState<File | null>(null);
   const [excel, setExcel] = useState<File | null>(null);
   const [result, setResult] = useState<Reconciliation | null>(null);
   const [loading, setLoading] = useState(false);
@@ -100,10 +100,10 @@ export default function Home() {
   const [error, setError] = useState("");
   const resultRef = useRef<HTMLDivElement | null>(null);
   const inFlight = useRef(false);
-  const canRun = Boolean(pdf && excel);
+  const canRun = Boolean(csv && excel);
 
   const reconcile = useCallback(async () => {
-    if (!pdf || !excel || inFlight.current) return;
+    if (!csv || !excel || inFlight.current) return;
     inFlight.current = true;
     setLoading(true);
     setError("");
@@ -111,7 +111,7 @@ export default function Home() {
     try {
       const excelSummary = await normalizeExcelInBrowser(excel);
       const body = new FormData();
-      body.append("pdf", pdf);
+      body.append("csv", csv);
       body.append("excelName", excel.name);
       body.append("excelSummary", JSON.stringify(excelSummary));
       const response = await fetch("/api/reconcile", { method: "POST", body });
@@ -137,16 +137,16 @@ export default function Home() {
       inFlight.current = false;
       setLoading(false);
     }
-  }, [pdf, excel]);
+  }, [csv, excel]);
 
   // Auto-run once both files are selected; the async fetch in reconcile legitimately
   // sets loading/result state from this effect.
   useEffect(() => {
-    if (pdf && excel) {
+    if (csv && excel) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       void reconcile();
     }
-  }, [pdf, excel, reconcile]);
+  }, [csv, excel, reconcile]);
 
   useEffect(() => {
     if (result && window.matchMedia("(max-width: 900px)").matches) {
@@ -154,8 +154,8 @@ export default function Home() {
     }
   }, [result]);
 
-  const choosePdf = (file: File | null) => {
-    setPdf(file);
+  const chooseCsv = (file: File | null) => {
+    setCsv(file);
     setResult(null);
     setError("");
     setDownloaded(false);
@@ -210,7 +210,7 @@ export default function Home() {
     }
   }
 
-  const step1Done = Boolean(pdf && excel);
+  const step1Done = Boolean(csv && excel);
   const step2Done = Boolean(result);
   const steps = [
     { n: "01", label: "Load evidence", state: step1Done ? "done" : "active" },
@@ -260,7 +260,7 @@ export default function Home() {
             </p>
           </div>
           <div className="file-stack">
-            <FileBox kind="pdf" file={pdf} onChange={choosePdf} />
+            <FileBox kind="csv" file={csv} onChange={chooseCsv} />
             <FileBox kind="excel" file={excel} onChange={chooseExcel} />
           </div>
           {error && <div className="error-box">{error}</div>}
@@ -365,13 +365,13 @@ export default function Home() {
                 <div className="metric-card">
                   <span className="label">SUBSCRIPTION MATCH</span>
                   <strong>{inr(subscriptionSum)}</strong>
-                  <small>4 PDF deductions matched</small>
+                  <small>4 vendor deductions matched</small>
                 </div>
               </div>
               <div className="match-strip">
                 <div className="subhead">
                   <span>SUBSCRIPTION DETAIL MATCH</span>
-                  <span className="mono">PDF ↔ Excel</span>
+                  <span className="mono">CSV ↔ Excel</span>
                 </div>
                 {(result.excel.subscriptionItems || []).map((item, i) => (
                   <div className="match-row" key={i}>
@@ -384,7 +384,7 @@ export default function Home() {
               <div className="differences">
                 <div className="subhead">
                   <span>WHERE DIFFERENCES OCCUR</span>
-                  <span className="mono">PDF ↔ Excel</span>
+                  <span className="mono">CSV ↔ Excel</span>
                 </div>
                 {(result.differences || []).map((item, i) => (
                   <div className="difference-row" key={i}>
@@ -396,7 +396,7 @@ export default function Home() {
                       <p>{item.explanation}</p>
                     </div>
                     <div className="difference-values">
-                      <span>PDF {inr(item.pdfAmount)}</span>
+                      <span>CSV {inr(item.pdfAmount)}</span>
                       <span>Excel {inr(item.excelAmount)}</span>
                       <b className={item.variance === 0 ? "zero" : "nonzero"}>
                         {item.variance > 0 ? "+" : ""}

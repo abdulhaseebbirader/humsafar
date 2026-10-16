@@ -248,6 +248,33 @@ function parseSheet(workbook: XLSX.WorkBook) {
 
 export type ExcelSummary = Reconciliation["excel"];
 
+type VendorCsvFields = Reconciliation["pdf"] & { operator: string; invoiceNo: string; period: string };
+
+function parseVendorCsv(buffer: Buffer) {
+  const workbook = XLSX.read(buffer, { type: "buffer", raw: true });
+  const rows = XLSX.utils.sheet_to_json<unknown[]>(workbook.Sheets[workbook.SheetNames[0]], { header: 1, raw: true, defval: "" });
+  const text = rows.map((row) => row.map((cell) => String(cell ?? "")).join(",")).join("\n");
+  const findRow = (label: RegExp) => rows.find((row) => label.test(String(row[0] ?? "").trim()));
+  const amount = (label: RegExp, column = 1) => valueMoney(findRow(label)?.[column]);
+  const operator = String(rows.find((row) => /^Bus Operator Payment Advice Operator/i.test(String(row[0] ?? "")))?.[0] ?? "Vendor payment advice").replace(/^.*?:\s*/i, "").trim();
+  const invoiceNo = String(rows.find((row) => /^Invoice Number/i.test(String(row[0] ?? "")))?.[1] ?? "").trim();
+  const period = String(rows.find((row) => /^Summary from/i.test(String(row[0] ?? "")))?.[0] ?? "Payment advice period").replace(/^Summary from\s*:/i, "").replace(/,\s*to\s*:/i, " to ").trim();
+  const booked = amount(/^Booked Amount \(1\)$/i);
+  const cancellation = amount(/^Cancel Amount \(2\)$/i);
+  const busCancellation = amount(/^Service Cancel Amt \(3\)$/i);
+  const cancellationCharges = amount(/^Cancellation Charges \(4\)$/i);
+  const exceptionalRefund = amount(/^Exceptional Refunds \(1\)$/i) + amount(/^Post JD SCanc Amt \(2\)$/i) + amount(/^Assured \(3\)$/i);
+  const dynamicPricing = amount(/^Abhi Edge Offer \(1\)$/i);
+  const srp = amount(/^Cancel Edge Offer \(2\)$/i);
+  const sponsored = amount(/^Serv Can Edge Offer \(3\)$/i);
+  const finalSettlement = amount(/^Total Invoice \(A\+B-C-D-E-G\)$/i, 6);
+  const invoiceBeforeAdjustment = round(booked - cancellation - busCancellation + cancellationCharges + exceptionalRefund - dynamicPricing - srp - sponsored);
+  const adjustment = round(finalSettlement - invoiceBeforeAdjustment);
+  const adjustments = adjustment ? [{ label: "CSV settlement adjustment", amount: adjustment }] : [];
+  if (!rows.length || !finalSettlement) throw new Error("This CSV does not contain a supported vendor invoice summary.");
+  return { booking: booked, cancellation, cancellationCharges, busCancellation, exceptionalRefund, dynamicPricing, operatorOffers: 0, ssPartner: 0, gds: 0, tds: amount(/^Total Invoice/i, 4), rescheduleExcess: 0, srp, sponsored, nova: 0, invoiceBeforeAdjustment, adjustment, adjustments, finalSettlement, operator, invoiceNo, period } satisfies VendorCsvFields;
+}
+
 function buildReconciliation(pdf: Awaited<ReturnType<typeof parsePdf>>, excel: ExcelSummary, pdfName: string, excelName: string): Reconciliation {
   const subMatches = [["Dynamic Pricing", pdf.dynamicPricing], ["SRP", pdf.srp], ["Sponsored Listing", pdf.sponsored], ["Nova", pdf.nova]] as const;
   const usedSubscriptionIndexes = new Set<number>();
@@ -288,5 +315,5 @@ export async function reconcileFiles(pdfBuffer: Buffer, excelBuffer: Buffer, pdf
 }
 
 export async function reconcileParsedExcel(pdfBuffer: Buffer, excel: ExcelSummary, pdfName: string, excelName: string): Promise<Reconciliation> {
-  return buildReconciliation(await parsePdf(pdfBuffer), excel, pdfName, excelName);
+  return buildReconciliation(parseVendorCsv(pdfBuffer), excel, pdfName, excelName);
 }
