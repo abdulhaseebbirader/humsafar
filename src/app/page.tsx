@@ -99,10 +99,12 @@ export default function Home() {
   const [downloaded, setDownloaded] = useState(false);
   const [error, setError] = useState("");
   const resultRef = useRef<HTMLDivElement | null>(null);
+  const inFlight = useRef(false);
   const canRun = Boolean(pdf && excel);
 
   const reconcile = useCallback(async () => {
-    if (!pdf || !excel || loading) return;
+    if (!pdf || !excel || inFlight.current) return;
+    inFlight.current = true;
     setLoading(true);
     setError("");
     setResult(null);
@@ -132,9 +134,10 @@ export default function Home() {
     } catch (e) {
       setError(e instanceof Error ? e.message : "Unable to reconcile these files.");
     } finally {
+      inFlight.current = false;
       setLoading(false);
     }
-  }, [pdf, excel, loading]);
+  }, [pdf, excel]);
 
   // Auto-run once both files are selected; the async fetch in reconcile legitimately
   // sets loading/result state from this effect.
