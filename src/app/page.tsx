@@ -7,7 +7,6 @@ import {
   Check,
   Download,
   FileSpreadsheet,
-  FileText,
   RefreshCw,
   ShieldCheck,
   UploadCloud,
@@ -31,7 +30,7 @@ function FileBox({
 }) {
   const [dragging, setDragging] = useState(false);
   const isVendor = kind === "vendor";
-  const acceptsFile = (f: File | undefined | null) => !!f && (isVendor ? /\.(csv|xls|xlsx|pdf)$/i.test(f.name) : /\.(csv|xls|xlsx)$/i.test(f.name));
+  const acceptsFile = (f: File | undefined | null) => !!f && /\.(csv|xls|xlsx)$/i.test(f.name);
   return (
     <label
       className={`file-box ${file ? "is-ready" : ""} ${dragging ? "is-dragging" : ""}`}
@@ -47,14 +46,14 @@ function FileBox({
         if (acceptsFile(dropped)) onChange(dropped);
       }}
     >
-      <input type="file" accept={isVendor ? ".csv,.xls,.xlsx,.pdf,text/csv,application/pdf,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" : ".csv,.xls,.xlsx,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"} onChange={(e) => onChange(e.target.files?.[0] ?? null)} />
+      <input type="file" accept=".csv,.xls,.xlsx,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(e) => onChange(e.target.files?.[0] ?? null)} />
       <div className="file-icon">
-        {isVendor && file?.name.toLowerCase().endsWith(".pdf") ? <FileText size={22} /> : <FileSpreadsheet size={22} />}
+        <FileSpreadsheet size={22} />
       </div>
       <div className="file-copy">
-        <strong>{isVendor ? "Vendor payment advice (CSV / XLS / PDF)" : "Client transaction report (CSV / XLS)"}</strong>
+        <strong>{isVendor ? "Vendor payment advice (CSV / XLS)" : "Client transaction report (CSV / XLS)"}</strong>
         <span>
-          {file ? file.name : isVendor ? "Drop the vendor's payment advice .csv, .xls or .pdf here" : "Drop your own booking ledger .csv or .xls here"}
+          {file ? file.name : isVendor ? "Drop the vendor's payment advice .csv or .xls here" : "Drop your own booking ledger .csv or .xls here"}
         </span>
       </div>
       <div className="file-action">{file ? <Check size={18} /> : <UploadCloud size={18} />}</div>
@@ -64,19 +63,6 @@ function FileBox({
 
 async function readAsCsv(file: File) {
   if (/\.csv$/i.test(file.name)) return file.text();
-  if (/\.pdf$/i.test(file.name)) {
-    const response = await fetch("/api/reconcile/vendor-pdf", {
-      method: "POST",
-      body: (() => {
-        const form = new FormData();
-        form.append("file", file);
-        return form;
-      })(),
-    });
-    const data = (await response.json().catch(() => ({}))) as { text?: string; error?: string };
-    if (!response.ok || !data.text) throw new Error(data.error || "The vendor PDF could not be read.");
-    return data.text;
-  }
   const workbook = XLSX.read(await file.arrayBuffer(), { type: "array", cellDates: false });
   const sheetName = workbook.SheetNames[0];
   if (!sheetName) throw new Error("The client spreadsheet does not contain a worksheet.");
@@ -278,7 +264,7 @@ export default function Home() {
             <span className="kicker">01 · Load evidence</span>
             <h2>Bring the two sides together.</h2>
             <p className="lead">
-              Upload the vendor&apos;s payment advice as CSV, XLS or PDF and your own client transaction report as CSV or XLS. HumsafarAI matches
+              Upload the vendor&apos;s payment advice as CSV or XLS and your own client transaction report as CSV or XLS. HumsafarAI matches
               every ticket by PNR and builds the bridge from your ledger to the vendor&apos;s settlement.
             </p>
           </div>
