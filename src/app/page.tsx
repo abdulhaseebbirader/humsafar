@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   ArrowRight,
@@ -28,17 +28,28 @@ function FileBox({
   onChange: (f: File | null) => void;
 }) {
   const isPdf = kind === "pdf";
+  const [dragging, setDragging] = useState(false);
+  const accept = isPdf
+    ? ".pdf,application/pdf"
+    : ".xls,.xlsx,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+  const matches = (f: File | undefined | null) =>
+    !!f && (isPdf ? /\.pdf$/i.test(f.name) : /\.xlsx?$/i.test(f.name));
   return (
-    <label className={`file-box ${file ? "is-ready" : ""}`}>
-      <input
-        type="file"
-        accept={
-          isPdf
-            ? ".pdf,application/pdf"
-            : ".xls,.xlsx,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        }
-        onChange={(e) => onChange(e.target.files?.[0] ?? null)}
-      />
+    <label
+      className={`file-box ${file ? "is-ready" : ""} ${dragging ? "is-dragging" : ""}`}
+      onDragOver={(e) => {
+        e.preventDefault();
+        setDragging(true);
+      }}
+      onDragLeave={() => setDragging(false)}
+      onDrop={(e) => {
+        e.preventDefault();
+        setDragging(false);
+        const dropped = e.dataTransfer.files?.[0];
+        if (matches(dropped)) onChange(dropped);
+      }}
+    >
+      <input type="file" accept={accept} onChange={(e) => onChange(e.target.files?.[0] ?? null)} />
       <div className="file-icon">{isPdf ? <FileText size={20} /> : <FileSpreadsheet size={20} />}</div>
       <div className="file-copy">
         <strong>{isPdf ? "Payment advice PDF" : "Detailed Excel export"}</strong>
@@ -66,18 +77,35 @@ function CheckRow({ item }: { item: Reconciliation["checks"][number] }) {
   );
 }
 
+function ResultSkeleton() {
+  return (
+    <div className="skeleton-state" aria-label="Reading files">
+      <div className="skeleton-bar w-40" />
+      <div className="skeleton-hero" />
+      <div className="skeleton-bar" />
+      <div className="skeleton-bar w-70" />
+      <div className="skeleton-bar w-55" />
+      <div className="skeleton-bar" />
+      <p className="skeleton-note">Parsing both files and building the settlement bridge…</p>
+    </div>
+  );
+}
+
 export default function Home() {
   const [pdf, setPdf] = useState<File | null>(null);
   const [excel, setExcel] = useState<File | null>(null);
   const [result, setResult] = useState<Reconciliation | null>(null);
   const [loading, setLoading] = useState(false);
+  const [downloaded, setDownloaded] = useState(false);
   const [error, setError] = useState("");
+  const resultRef = useRef<HTMLDivElement | null>(null);
   const canRun = Boolean(pdf && excel);
 
   const reconcile = useCallback(async () => {
     if (!pdf || !excel || loading) return;
     setLoading(true);
     setError("");
+    setResult(null);
     try {
       const excelSummary = await normalizeExcelInBrowser(excel);
       const body = new FormData();
@@ -117,6 +145,13 @@ export default function Home() {
     }
   }, [pdf, excel, reconcile]);
 
+  // Bring the result canvas into view once it fills in (mainly on mobile).
+  useEffect(() => {
+    if (result && window.matchMedia("(max-width: 900px)").matches) {
+      resultRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [result]);
+
   const choosePdf = (file: File | null) => {
     setPdf(file);
     setResult(null);
@@ -134,6 +169,14 @@ export default function Home() {
             (a, b) => a + Number(b || 0),
             0,
           )
+        : 0,
+    [result],
+  );
+  const reviewCount = useMemo(
+    () =>
+      result
+        ? result.checks.filter((c) => c.status === "review").length +
+          result.differences.filter((d) => d.status === "review").length
         : 0,
     [result],
   );
@@ -157,11 +200,14 @@ export default function Home() {
       a.download = `humsafarAI-${result.source.invoiceNo || "report"}.pdf`;
       a.click();
       URL.revokeObjectURL(url);
+      setDownloaded(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : "The PDF report could not be generated.");
     }
   }
 
+  const step1Done = Boolean(pdf && excel);
+  const step2Done = Boolean(result);
   return (
     <div className="app-shell">
       <aside className="rail">
@@ -175,26 +221,29 @@ export default function Home() {
         </div>
         <div className="rail-rule" />
         <div className="steps">
-          <div className="step active">
+          <div className={`step ${step1Done ? "complete" : "active"}`}>
             <span>01</span>
             <div>
               <strong>Load evidence</strong>
               <small>PDF + Excel</small>
             </div>
+            {step1Done && <Check size={14} className="step-tick" />}
           </div>
-          <div className={`step ${result ? "complete" : ""}`}>
+          <div className={`step ${step2Done ? "complete" : loading ? "active" : ""}`}>
             <span>02</span>
             <div>
               <strong>Reconcile</strong>
               <small>Detect overlap</small>
             </div>
+            {step2Done && <Check size={14} className="step-tick" />}
           </div>
-          <div className="step">
+          <div className={`step ${downloaded ? "complete" : step2Done ? "active" : ""}`}>
             <span>03</span>
             <div>
               <strong>Share result</strong>
               <small>Download PDF</small>
             </div>
+            {downloaded && <Check size={14} className="step-tick" />}
           </div>
         </div>
         <div className="rail-note">
@@ -249,7 +298,7 @@ export default function Home() {
               {canRun && loading && <span className="hint">Both files received — reconciling automatically.</span>}
             </div>
           </div>
-          <div className="result-panel">
+          <div className="result-panel" ref={resultRef}>
             <div className="result-header">
               <div className="section-kicker">
                 <span>02</span>
@@ -257,7 +306,8 @@ export default function Home() {
               </div>
               <div className="result-actions">
                 <span className="confidence">
-                  <span className="live-dot" /> {result ? "ready to review" : "waiting"}
+                  <span className="live-dot" />{" "}
+                  {result ? (reviewCount ? `${reviewCount} to review` : "ready to review") : loading ? "working" : "waiting"}
                 </span>
                 <button className="outline-btn" onClick={downloadReport} disabled={!result}>
                   <Download size={15} /> Download PDF
@@ -265,7 +315,7 @@ export default function Home() {
               </div>
             </div>
             {result ? (
-              <>
+              <div className="result-body">
                 <div className="identity">
                   <div>
                     <span className="label">OPERATOR</span>
@@ -288,8 +338,16 @@ export default function Home() {
                       after adjustment <b>{inr(result.pdf.adjustment)}</b>
                     </p>
                   </div>
-                  <div className="verified">
-                    <Check size={17} /> reconciled
+                  <div className={`verified ${reviewCount ? "needs-review" : ""}`}>
+                    {reviewCount ? (
+                      <>
+                        <AlertTriangle size={15} /> {reviewCount} to review
+                      </>
+                    ) : (
+                      <>
+                        <Check size={17} /> reconciled
+                      </>
+                    )}
                   </div>
                 </div>
                 <div className="bridge">
@@ -333,7 +391,7 @@ export default function Home() {
                     <div className="match-row" key={i}>
                       <span>{item.label}</span>
                       <strong>{inr(item.amount)}</strong>
-                      <em>{item.matched || "Review"}</em>
+                      <em className={item.matched ? "matched" : "unmatched"}>{item.matched || "Review"}</em>
                     </div>
                   ))}
                 </div>
@@ -371,7 +429,9 @@ export default function Home() {
                     <CheckRow item={item} key={i} />
                   ))}
                 </div>
-              </>
+              </div>
+            ) : loading ? (
+              <ResultSkeleton />
             ) : (
               <div className="empty-state">
                 <UploadCloud size={30} />
@@ -381,6 +441,22 @@ export default function Home() {
             )}
           </div>
         </section>
+        <div className="mobile-bar">
+          <button onClick={reconcile} disabled={!canRun || loading} className="run-btn">
+            {loading ? (
+              <>
+                <RefreshCw className="spin" size={15} /> Reading…
+              </>
+            ) : (
+              <>
+                Reconcile <ArrowRight size={15} />
+              </>
+            )}
+          </button>
+          <button className="outline-btn" onClick={downloadReport} disabled={!result}>
+            <Download size={15} /> PDF
+          </button>
+        </div>
         <footer>
           <span>HumsafarAI v1.0</span>
           <span>Built for shareable, audit-ready answers</span>

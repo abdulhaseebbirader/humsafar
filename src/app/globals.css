@@ -729,3 +729,104 @@ footer {
     padding: 0 20px 25px;
   }
 }
+
+/* — Polish additions — */
+.file-box.is-dragging {
+  border-color: #0f766e;
+  border-style: solid;
+  background: #e9f8f4;
+  transform: translateY(-1px);
+  box-shadow: 0 8px 20px #0f766e1f;
+}
+.step {
+  position: relative;
+}
+.step-tick {
+  margin-left: auto;
+  color: #70c5ba;
+  flex: none;
+  margin-top: 3px;
+}
+.result-body {
+  animation: rise 0.35s ease both;
+}
+.result-body > * {
+  animation: rise 0.35s ease both;
+}
+.result-body > *:nth-child(2) { animation-delay: 40ms; }
+.result-body > *:nth-child(3) { animation-delay: 70ms; }
+.result-body > *:nth-child(4) { animation-delay: 100ms; }
+.result-body > *:nth-child(5) { animation-delay: 130ms; }
+.result-body > *:nth-child(6) { animation-delay: 160ms; }
+.result-body > *:nth-child(7) { animation-delay: 190ms; }
+@keyframes rise {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.verified.needs-review {
+  color: #a56723;
+  background: #fff3df;
+}
+.match-row em.unmatched {
+  color: #a34c26;
+}
+.skeleton-state {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 34px 4px 10px;
+}
+.skeleton-bar,
+.skeleton-hero {
+  border-radius: 7px;
+  background: linear-gradient(90deg, #eef3f1 25%, #e2eae8 45%, #eef3f1 65%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s ease infinite;
+}
+.skeleton-bar {
+  height: 16px;
+}
+.skeleton-hero {
+  height: 86px;
+}
+.skeleton-bar.w-40 { width: 40%; }
+.skeleton-bar.w-70 { width: 70%; }
+.skeleton-bar.w-55 { width: 55%; }
+.skeleton-note {
+  margin: 14px 0 0;
+  font: 10px "IBM Plex Mono", monospace;
+  color: #899692;
+  letter-spacing: 0.04em;
+}
+@keyframes shimmer {
+  from { background-position: 120% 0; }
+  to { background-position: -80% 0; }
+}
+.mobile-bar {
+  display: none;
+}
+@media (max-width: 650px) {
+  .mobile-bar {
+    display: flex;
+    gap: 10px;
+    position: sticky;
+    bottom: 0;
+    z-index: 20;
+    padding: 10px 20px calc(10px + env(safe-area-inset-bottom));
+    background: rgba(251, 252, 251, 0.92);
+    backdrop-filter: blur(8px);
+    border-top: 1px solid #e6ecea;
+  }
+  .mobile-bar .run-btn {
+    flex: 1;
+    justify-content: center;
+    height: 44px;
+  }
+  .mobile-bar .outline-btn {
+    height: 44px;
+    padding: 0 16px;
+  }
+  footer {
+    padding-bottom: calc(20px + env(safe-area-inset-bottom));
+  }
+}

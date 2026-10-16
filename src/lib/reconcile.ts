@@ -48,22 +48,6 @@ function consumeMatch(target: number, values: number[], used: Set<number>) {
   return true;
 }
 
-const PDF_CATEGORIES = [
-  ["Booking (a)", "booking", "first"],
-  ["Cancellation (b)", "cancellation", "first"],
-  ["Cancellation Charges (c)", "cancellationCharges", "last"],
-  ["Bus Cancellation (d)", "busCancellation", "first"],
-  ["Exceptional Refund (e)", "exceptionalRefund", "last"],
-  ["Dynamic Pricing (f)", "dynamicPricing", "last"],
-  ["Operator Offers (h)", "operatorOffers", "last"],
-  ["SS partner commission with GST (i)", "ssPartner", "last"],
-  ["Gds Commission including GST(k)", "gds", "last"],
-  ["TDS 194-O (m)", "tds", "last"],
-  ["Reschedule Excess Fare (o)", "rescheduleExcess", "last"],
-  ["SRP (t)", "srp", "last"],
-  ["Sponsored Listing (u)", "sponsored", "last"],
-  ["Nova (v)", "nova", "last"],
-] as const;
 type PdfCategoryFields = Pick<Reconciliation["pdf"], "booking" | "cancellation" | "cancellationCharges" | "busCancellation" | "exceptionalRefund" | "dynamicPricing" | "operatorOffers" | "ssPartner" | "gds" | "tds" | "rescheduleExcess" | "srp" | "sponsored" | "nova">;
 
 function normalized(text: string) { return text.replace(/\s+/g, " ").trim(); }
@@ -76,15 +60,6 @@ function segmentBetween(text: string, label: string, labels: string[]) {
     .filter(index => index >= 0)
     .sort((a, b) => a - b)[0] ?? text.length;
   return text.slice(start, end);
-}
-function categoryAmount(text: string, label: string, mode: "first" | "last", required = false) {
-  const segment = segmentBetween(text, label, PDF_CATEGORIES.map(([candidate]) => candidate));
-  const values = lineNumbers(segment);
-  if (!values.length) {
-    if (required) throw new Error(`The payment advice is missing the PDF category amount for “${label}”.`);
-    return 0;
-  }
-  return mode === "first" ? values[0] : values[values.length - 1];
 }
 function adjustmentRows(text: string) {
   const labels = ["SS Adjustments", "Recon Adjustments", "Advance Payment Deductions", "YourBus Adjustments", "Negative Amount", "BO Migration Adjustments", "Working Capital Adjustment", "NBFC Adjustment"];
