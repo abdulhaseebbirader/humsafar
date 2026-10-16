@@ -113,6 +113,7 @@ export default function Home() {
   const [history, setHistory] = useState<Array<{ savedAt: string; result: Reconciliation }>>([]);
   const resultRef = useRef<HTMLDivElement | null>(null);
   const inFlight = useRef(false);
+  const restoringHistory = useRef(false);
   const canRun = Boolean(vendor && client);
 
   const reconcile = useCallback(async () => {
@@ -143,6 +144,10 @@ export default function Home() {
 
   useEffect(() => {
     if (!result) return;
+    if (restoringHistory.current) {
+      restoringHistory.current = false;
+      return;
+    }
     const key = "humsafarai:reconciliation-reports";
     let saved: Array<{ savedAt: string; result: Reconciliation }> = [];
     try {
@@ -177,6 +182,7 @@ export default function Home() {
   };
 
   const restoreHistoryItem = (saved: { savedAt: string; result: Reconciliation }) => {
+    restoringHistory.current = true;
     setResult(saved.result);
     setError("");
     setDownloaded(false);

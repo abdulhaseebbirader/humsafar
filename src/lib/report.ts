@@ -4,7 +4,6 @@ import type { Reconciliation } from "./reconcile";
 
 const fontDir = path.resolve(process.cwd(), "public/assets");
 const logoPath = path.resolve(process.cwd(), "public/humsafarai-logo.png");
-const REPORT_EXCEPTIONS = 40;
 
 function renderReport(doc: PDFKit.PDFDocument, result: Reconciliation) {
   doc.registerFont("Humsafar Sans", path.join(fontDir, "DejaVuSans.ttf"));
@@ -80,7 +79,7 @@ function renderReport(doc: PDFKit.PDFDocument, result: Reconciliation) {
   });
 
   section("04", "Tickets to review");
-  const shown = result.exceptions.slice(0, REPORT_EXCEPTIONS);
+  const shown = result.exceptions;
   if (!shown.length) {
     doc.fillColor(muted).font(regular).fontSize(9).text("Every ticket matches on PNR, amount, commission and edge offer.");
   }
