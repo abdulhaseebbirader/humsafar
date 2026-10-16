@@ -54,7 +54,7 @@ function renderReport(doc: PDFKit.PDFDocument, result: Reconciliation) {
   doc.fillColor(muted).font(bold).fontSize(7).text("COMPARISON", 58, headY + 2, { width: 180, characterSpacing: 0.8 });
   doc.text("PDF", 245, headY + 2, { width: 75, align: "right", characterSpacing: 0.8 });
   doc.text("EXCEL", 330, headY + 2, { width: 75, align: "right", characterSpacing: 0.8 });
-  doc.text("VARIANCE", 410, headY + 2, { width: 60, align: "right", characterSpacing: 0.8 });
+  doc.text("VARIANCE", 400, headY + 2, { width: 74, align: "right", characterSpacing: 0.8 });
   doc.text("STATUS", 476, headY + 2, { width: 62, align: "center", characterSpacing: 0.8 });
   doc.y = headY + 19; doc.moveDown(0.35);
   (result.differences ?? []).forEach(item => {
@@ -68,7 +68,7 @@ function renderReport(doc: PDFKit.PDFDocument, result: Reconciliation) {
     doc.fillColor(ink).font(bold).fontSize(9.2).text(item.label, 58, y + 2, { width: 180 });
     doc.fillColor(ink).font(regular).fontSize(8.6).text(inr(item.pdfAmount), 245, y + 2, { width: 75, align: "right" });
     doc.text(inr(item.excelAmount), 330, y + 2, { width: 75, align: "right" });
-    doc.fillColor(color).font(bold).fontSize(8.6).text(moneyWithSign(item.variance), 410, y + 2, { width: 60, align: "right" });
+    doc.fillColor(color).font(bold).fontSize(7.8).text(moneyWithSign(item.variance), 400, y + 2, { width: 74, align: "right" });
     doc.roundedRect(476, y, 62, 14, 7).fill(matched ? mint : "#fdeee8");
     doc.fillColor(color).font(bold).fontSize(6.6).text(matched ? "MATCHED" : "REVIEW", 476, y + 4.5, { width: 62, align: "center", characterSpacing: 0.5 });
     doc.fillColor(muted).font(regular).fontSize(7.8).text(item.explanation, 58, y + 6 + labelLines * 10, { width: 480, lineGap: 1 });
