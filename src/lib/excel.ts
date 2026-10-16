@@ -20,11 +20,12 @@ export async function normalizeExcelInBrowser(file: File): Promise<ExcelSummary>
   const rows = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, raw: true, defval: null });
   const headers = rows
     .map((row, index) => ({ row, index }))
-    .filter(
-      ({ row }) =>
-        String(row?.[0] ?? "").trim().toLowerCase() === "tin" &&
-        String(row?.[1] ?? "").trim().toLowerCase() === "pnr",
-    );
+    .filter(({ row }) => {
+      const values = row.map((value) => String(value ?? "").trim().toLowerCase());
+      const hasTin = values.some((value) => value === "tin" || value.includes("tin number") || value.includes("tax identification"));
+      const hasPnr = values.some((value) => value === "pnr" || value.includes("booking reference") || value.includes("reservation"));
+      return hasTin && hasPnr;
+    });
   if (!headers.length) throw new Error("This spreadsheet does not contain the expected TIN / PNR transaction header.");
   const column = (name: string) => {
     const index = headers[0].row.findIndex((value: unknown) =>
