@@ -18,24 +18,29 @@ export async function normalizeExcelInBrowser(file: File): Promise<ExcelSummary>
   const sheet = workbook.Sheets["BoInvoice"] || workbook.Sheets[workbook.SheetNames[0]];
   if (!sheet) throw new Error("The workbook does not contain a transaction sheet.");
   const rows = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, raw: true, defval: null });
+  const normalizeHeader = (value: unknown) => String(value ?? "").trim().toLowerCase().replace(/[\s_\-/]+/g, " ");
   const headers = rows
     .map((row, index) => ({ row, index }))
     .filter(({ row }) => {
-      const values = row.map((value) => String(value ?? "").trim().toLowerCase());
-      const hasTin = values.some((value) => value === "tin" || value.includes("tin number") || value.includes("tax identification"));
-      const hasPnr = values.some((value) => value === "pnr" || value.includes("booking reference") || value.includes("reservation"));
-      return hasTin && hasPnr;
+      const values = row.map(normalizeHeader);
+      // Client exports vary between TIN/PNR and Ticket Number/Operator PNR.
+      // The stable contract is the fare and net-payable columns, so use those
+      // to locate the transaction table instead of requiring one exact header.
+      const hasFare = values.some((value) => value.includes("ticket fare") || value.includes("ticket amount") || value === "fare");
+      const hasNet = values.some((value) => value.includes("netpayable") || value.includes("net payable") || value.includes("net amount"));
+      return hasFare && hasNet;
     });
-  if (!headers.length) throw new Error("This spreadsheet does not contain the expected TIN / PNR transaction header.");
-  const column = (name: string) => {
-    const index = headers[0].row.findIndex((value: unknown) =>
-      String(value ?? "").toLowerCase().replace(/\s+/g, " ").includes(name.toLowerCase()),
-    );
-    if (index < 0) throw new Error(`The workbook is missing the required “${name}” column.`);
+  if (!headers.length) throw new Error("This spreadsheet does not contain a transaction table with ticket fare and net payable columns.");
+  const column = (...names: string[]) => {
+    const index = headers[0].row.findIndex((value: unknown) => {
+      const header = normalizeHeader(value);
+      return names.some((name) => header.includes(normalizeHeader(name)));
+    });
+    if (index < 0) throw new Error(`The workbook is missing the required “${names[0]}” column.`);
     return index;
   };
-  const fareCol = column("ticket fare");
-  const netCol = column("netpayable");
+  const fareCol = column("ticket fare", "ticket amount", "fare");
+  const netCol = column("netpayable", "net payable", "net amount");
   const sections = headers.map(({ index }) => {
     const end = headers.find((item) => item.index > index)?.index ?? rows.length;
     let label = "";
