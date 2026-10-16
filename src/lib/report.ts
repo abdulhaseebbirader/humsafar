@@ -49,23 +49,34 @@ function renderReport(doc: PDFKit.PDFDocument, result: Reconciliation) {
   sourceRows.forEach(([left, right]) => tableRow(left, right));
 
   section("03", "Where differences occur");
-  label("Comparison", 58, doc.y, 170); label("PDF", 235, doc.y, 100); label("Excel", 340, doc.y, 100); label("Variance", 445, doc.y, 105); doc.moveDown(0.5); rule(); doc.moveDown(0.45);
+  const headY = doc.y;
+  doc.roundedRect(50, headY - 3, 495, 18, 4).fill(paper);
+  doc.fillColor(muted).font(bold).fontSize(7).text("COMPARISON", 58, headY + 2, { width: 180, characterSpacing: 0.8 });
+  doc.text("PDF", 245, headY + 2, { width: 75, align: "right", characterSpacing: 0.8 });
+  doc.text("EXCEL", 330, headY + 2, { width: 75, align: "right", characterSpacing: 0.8 });
+  doc.text("VARIANCE", 410, headY + 2, { width: 60, align: "right", characterSpacing: 0.8 });
+  doc.text("STATUS", 476, headY + 2, { width: 62, align: "center", characterSpacing: 0.8 });
+  doc.y = headY + 19; doc.moveDown(0.35);
   (result.differences ?? []).forEach(item => {
-    const color = item.status === "matched" ? teal : red;
-    const explanationLines = Math.max(1, Math.ceil(item.explanation.length / 92));
-    const rowHeight = 48 + explanationLines * 9;
+    const matched = item.status === "matched";
+    const color = matched ? teal : red;
+    const explanationLines = Math.max(1, Math.ceil(item.explanation.length / 100));
+    const labelLines = Math.max(1, Math.ceil(item.label.length / 30));
+    const rowHeight = 16 + labelLines * 10 + explanationLines * 10;
     if (doc.y + rowHeight > 748) newPage();
     const y = doc.y;
-    doc.roundedRect(50, y - 4, 495, rowHeight, 6).fill(item.status === "matched" ? "#f1faf7" : "#fff7f4");
-    doc.fillColor(color).font(bold).fontSize(9.2).text(item.label, 62, y + 5, { width: 165 });
-    doc.fillColor(ink).font(regular).fontSize(7.6).text(inr(item.pdfAmount), 235, y + 5, { width: 100, align: "right" });
-    doc.text(inr(item.excelAmount), 340, y + 5, { width: 100, align: "right" });
-    doc.fillColor(color).font(bold).fontSize(7.6).text(moneyWithSign(item.variance), 445, y + 5, { width: 90, align: "right" });
-    doc.fillColor(color).font(bold).fontSize(6.8).text(item.status === "matched" ? "MATCHED" : "REVIEW", 62, y + 22, { width: 62, characterSpacing: 0.7 });
-    doc.fillColor(muted).font(regular).fontSize(7.8).text(item.explanation, 128, y + 21, { width: 402, lineGap: 1 });
-    doc.y = y + rowHeight + 7;
+    doc.fillColor(ink).font(bold).fontSize(9.2).text(item.label, 58, y + 2, { width: 180 });
+    doc.fillColor(ink).font(regular).fontSize(8.6).text(inr(item.pdfAmount), 245, y + 2, { width: 75, align: "right" });
+    doc.text(inr(item.excelAmount), 330, y + 2, { width: 75, align: "right" });
+    doc.fillColor(color).font(bold).fontSize(8.6).text(moneyWithSign(item.variance), 410, y + 2, { width: 60, align: "right" });
+    doc.roundedRect(476, y, 62, 14, 7).fill(matched ? mint : "#fdeee8");
+    doc.fillColor(color).font(bold).fontSize(6.6).text(matched ? "MATCHED" : "REVIEW", 476, y + 4.5, { width: 62, align: "center", characterSpacing: 0.5 });
+    doc.fillColor(muted).font(regular).fontSize(7.8).text(item.explanation, 58, y + 6 + labelLines * 10, { width: 480, lineGap: 1 });
+    doc.y = y + rowHeight + 2;
+    rule();
+    doc.moveDown(0.4);
   });
-  doc.moveDown(0.2); rule(); doc.moveDown(0.35);
+  doc.moveDown(0.2);
 
   section("04", "Subscription detail match");
   [["Dynamic Pricing", result.pdf.dynamicPricing], ["SRP", result.pdf.srp], ["Sponsored Listing", result.pdf.sponsored], ["Nova", result.pdf.nova]].forEach(([itemLabel, value]) => { const matched = result.excel.subscriptionItems?.find(item => item.label === itemLabel)?.matched ?? "Review"; tableRow(`${String(itemLabel)}  ·  ${matched}`, inr(Number(value))); });
