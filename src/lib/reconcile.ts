@@ -111,7 +111,11 @@ type VendorTicket = {
 
 function parseVendor(rows: string[][]) {
   const label = (row: string[]) => cellAt(row, 0);
-  const totalInvoiceIndex = rows.findIndex((row) => /^Total Invoice/i.test(label(row)));
+  const rowText = (row: string[]) => row.map((value) => value.trim()).join(" ");
+  const totalInvoiceIndex = rows.findIndex((row) =>
+    /^(?:Total\s+Invoice|Total\s+Invoice\s*\()/i.test(label(row)) ||
+    /\bTotal\s+Invoice\b/i.test(rowText(row)),
+  );
   if (totalInvoiceIndex < 0) {
     const looksLikeClient = rows.some((row) => /particulares/i.test(row.join(",")));
     throw new Error(
