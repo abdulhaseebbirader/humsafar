@@ -119,14 +119,19 @@ function parseVendor(rows: string[][]) {
   if (totalInvoiceIndex < 0) {
     // RedBus payment advice is a flat TIN/PNR table rather than the
     // sectioned AbhiBus advice with a Total Invoice row.
-    const adviceHeaderIndex = rows.findIndex(
-      (row) => /^TIN$/i.test(cellAt(row, 0)) && /^PNR$/i.test(cellAt(row, 1)) && row.some((value) => /ticket\s*fare/i.test(value)),
-    );
+    const adviceHeaderIndex = rows.findIndex((row) => {
+      const normalized = row.map((value) => value.trim());
+      const hasPnr = normalized.some((value) => /^PNR$/i.test(value));
+      const hasFare = normalized.some((value) => /^(Ticket\s*Fare|Gross\s*(Amount|Fare)|Amount)$/i.test(value));
+      const hasNet = normalized.some((value) => /^(Net\s*Payable|NetPayable|Net\s*Amount|Settlement\s*Amount)$/i.test(value));
+      return hasPnr && (hasFare || hasNet);
+    });
     if (adviceHeaderIndex >= 0) {
       const header = rows[adviceHeaderIndex];
       const column = (pattern: RegExp) => header.findIndex((value) => pattern.test(value.trim()));
       const pnrColumn = column(/^PNR$/i);
-      const fareColumn = column(/^Ticket\s*Fare$/i);
+      const fareColumn = column(/^(Ticket\s*Fare|Gross\s*(Amount|Fare)|Amount)$/i);
+      const resolvedFareColumn = fareColumn >= 0 ? fareColumn : column(/^(Net\s*Payable|NetPayable|Net\s*Amount|Settlement\s*Amount)$/i);
       const commissionColumn = column(/^Total\s*Commission\s*With\s*GST$/i);
       const netColumn = column(/^NetPayable$/i);
       const offerColumn = column(/^Others$/i);
@@ -134,13 +139,13 @@ function parseVendor(rows: string[][]) {
       for (const row of rows.slice(adviceHeaderIndex + 1)) {
         const ticket = cellAt(row, 0);
         const pnr = cellAt(row, pnrColumn);
-        if (!ticket || !pnr || !/\d/.test(pnr) || fareColumn < 0) continue;
+        if (!ticket || !pnr || !/\d/.test(pnr) || resolvedFareColumn < 0) continue;
         flatTickets.push({
           ticket,
           pnr,
           doj: cellAt(row, column(/^DOE$/i) >= 0 ? column(/^DOE$/i) : column(/^DOM$/i)),
           seats: cellAt(row, column(/^Seats$/i)),
-          amount: money(cellAt(row, fareColumn)),
+          amount: money(cellAt(row, resolvedFareColumn)),
           commission: commissionColumn >= 0 ? money(cellAt(row, commissionColumn)) : 0,
           edge: offerColumn >= 0 ? money(cellAt(row, offerColumn)) : 0,
           net: netColumn >= 0 ? money(cellAt(row, netColumn)) : 0,
