@@ -52,16 +52,30 @@ export async function normalizeExcelInBrowser(file: File): Promise<ExcelSummary>
         .filter((row) => row[1] !== null && row[1] !== undefined && String(row[1]).trim() && String(row[1]) !== "PNR"),
     };
   });
-  const main = sections.find((section) => /payment/i.test(section.label)) || sections[0];
+  // Real exports repeat the Payment block: every Payment-labelled section
+  // belongs to the same booking total.
+  const paymentSections = sections.filter((section) => /payment/i.test(section.label));
+  const main = {
+    data: paymentSections.length ? paymentSections.flatMap((section) => section.data) : (sections[0]?.data ?? []),
+  };
+  const cancellationSections = sections.filter((section) =>
+    /(cancellation|bus cancelled|exceptional refund)/i.test(section.label),
+  );
   const cancellationRows = Array.from(
     new Map(
-      sections
-        .filter((section) => /(cancellation|bus cancelled|exceptional refund)/i.test(section.label))
+      cancellationSections.flatMap((section) => section.data).map((row) => [String(row[1]).trim(), row] as const),
+    ).values(),
+  );
+  const cancellationPnrs = new Set(cancellationRows.map((row) => String(row[1]).trim()));
+  // Plain "Cancellation" sections correspond to the PDF cancellation category.
+  const plainCancellationRows = Array.from(
+    new Map(
+      cancellationSections
+        .filter((section) => /cancellation/i.test(section.label) && !/bus|exceptional/i.test(section.label))
         .flatMap((section) => section.data)
         .map((row) => [String(row[1]).trim(), row] as const),
     ).values(),
   );
-  const cancellationPnrs = new Set(cancellationRows.map((row) => String(row[1]).trim()));
   const embedded = Array.from(
     new Map(
       main.data
@@ -111,6 +125,7 @@ export async function normalizeExcelInBrowser(file: File): Promise<ExcelSummary>
     overlapCount: embedded.length,
     cancellationRows: cancellationRows.length,
     cancellationFare: sum(cancellationRows, fareCol),
+    plainCancellationFare: sum(plainCancellationRows, fareCol),
     cancellationNet: sum(cancellationRows, netCol),
     subscriptionTotal: excelRound(subscriptionItems.reduce((total, item) => total + item.amount, 0)),
     subscriptionItems,

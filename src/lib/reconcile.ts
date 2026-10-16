@@ -9,7 +9,7 @@ export type ReconciliationAdjustment = { label: string; amount: number; reason?:
 export type Reconciliation = {
   source: { pdfName: string; excelName: string; period: string; operator: string; invoiceNo: string };
   pdf: { booking: number; cancellation: number; cancellationCharges: number; busCancellation: number; exceptionalRefund: number; dynamicPricing: number; operatorOffers: number; ssPartner: number; gds: number; tds: number; rescheduleExcess: number; srp: number; sponsored: number; nova: number; invoiceBeforeAdjustment: number; adjustment: number; adjustments: ReconciliationAdjustment[]; finalSettlement: number };
-  excel: { bookingRows: number; rawBookingFare: number; rawBookingNet: number; bookingFare: number; bookingNet: number; activeBookingFare: number; activeBookingNet: number; embeddedCancellationFare: number; overlapCount: number; cancellationRows: number; cancellationFare: number; cancellationNet: number; subscriptionTotal: number; subscriptionItems: { label: string; amount: number; matched: string }[] };
+  excel: { bookingRows: number; rawBookingFare: number; rawBookingNet: number; bookingFare: number; bookingNet: number; activeBookingFare: number; activeBookingNet: number; embeddedCancellationFare: number; overlapCount: number; cancellationRows: number; cancellationFare: number; cancellationNet: number; plainCancellationFare: number; subscriptionTotal: number; subscriptionItems: { label: string; amount: number; matched: string }[] };
   checks: { label: string; status: "matched" | "review" | "info"; detail: string; variance?: number }[];
   differences: { label: string; pdfAmount: number; excelAmount: number; variance: number; explanation: string; status: "matched" | "review" }[];
   bridge: { label: string; amount: number; kind: "base" | "deduction" | "addition" | "final" }[];
@@ -168,7 +168,10 @@ function parseSheet(workbook: XLSX.WorkBook) {
     const data = rows.slice(start + 1, end).filter(row => row[1] !== null && row[1] !== undefined && String(row[1]).trim() && String(row[1]) !== "PNR");
     return { label: sectionLabel(rows, start), data };
   });
-  const main = sections.find(section => /payment/i.test(section.label)) ?? sections[0];
+  // Real exports repeat the Payment block (e.g. one block per route group):
+  // every Payment-labelled section belongs to the same booking total.
+  const paymentSections = sections.filter(section => /payment/i.test(section.label));
+  const main = { data: paymentSections.length ? paymentSections.flatMap(section => section.data) : (sections[0]?.data ?? []) };
   const cancellationSections = sections.filter(section => /(cancellation|bus cancelled|exceptional refund)/i.test(section.label));
   // A PNR can appear in more than one cancellation subsection (for example
   // both "Cancellation" and "Bus Cancelled"). Count it once so cancellation
@@ -181,6 +184,16 @@ function parseSheet(workbook: XLSX.WorkBook) {
     ).values(),
   );
   const cancellationPnrs = new Set(cancellationRows.map(row => String(row[1]).trim()));
+  // Plain "Cancellation" sections correspond to the PDF cancellation category;
+  // Bus Cancelled and Exceptional Refund map to their own PDF rows.
+  const plainCancellationRows = Array.from(
+    new Map(
+      cancellationSections
+        .filter(section => /cancellation/i.test(section.label) && !/bus|exceptional/i.test(section.label))
+        .flatMap(section => section.data)
+        .map(row => [String(row[1]).trim(), row] as const),
+    ).values(),
+  );
   const embedded = Array.from(
     new Map(
       main.data
@@ -219,6 +232,7 @@ function parseSheet(workbook: XLSX.WorkBook) {
     overlapCount: embedded.length,
     cancellationRows: cancellationRows.length,
     cancellationFare: sum(cancellationRows, fareCol),
+    plainCancellationFare: sum(plainCancellationRows, fareCol),
     cancellationNet: sum(cancellationRows, netCol),
     subscriptionTotal: round(subscriptionItems.reduce((total, item) => total + item.amount, 0)),
     subscriptionItems,
@@ -247,9 +261,13 @@ function buildReconciliation(pdf: Awaited<ReturnType<typeof parsePdf>>, excel: E
     ...(pdf.adjustments.length ? pdf.adjustments.map(item => ({ label: item.label, amount: item.amount, kind: item.amount < 0 ? "deduction" as const : "addition" as const })) : [{ label: "Total adjustment", amount: pdf.adjustment, kind: pdf.adjustment < 0 ? "deduction" as const : "addition" as const }]),
     { label: "Final settlement", amount: final, kind: "final" },
   ];
+  // Payment-advice booking is the gross booking total: it ties either to the
+  // raw workbook booking fare, or to the active fare once overlapped
+  // cancellation PNRs are removed — whichever the export layout produces.
+  const bookingExcelAmount = close(excel.activeBookingFare, pdf.booking) ? excel.activeBookingFare : excel.rawBookingFare;
   const differences: Reconciliation["differences"] = [
-    { label: "Booking ticket fare", pdfAmount: pdf.booking, excelAmount: excel.activeBookingFare, variance: round(excel.activeBookingFare - pdf.booking), explanation: `${excel.overlapCount} PNRs appear in both workbook sections; Excel active fare removes ${excel.embeddedCancellationFare.toLocaleString("en-IN")} as overlap.`, status: close(excel.activeBookingFare, pdf.booking) ? "matched" : "review" },
-    { label: "Cancellation classification", pdfAmount: pdf.cancellation, excelAmount: round(excel.cancellationFare + excel.embeddedCancellationFare), variance: round(excel.cancellationFare + excel.embeddedCancellationFare - pdf.cancellation), explanation: `${excel.cancellationRows} rows from cancellation, bus-cancelled, and exceptional-refund sections are compared with the PDF cancellation category.`, status: close(excel.cancellationFare + excel.embeddedCancellationFare, pdf.cancellation) ? "matched" : "review" },
+    { label: "Booking ticket fare", pdfAmount: pdf.booking, excelAmount: bookingExcelAmount, variance: round(bookingExcelAmount - pdf.booking), explanation: `${excel.overlapCount} PNRs appear in both booking and cancellation sections; active booking removes ${excel.embeddedCancellationFare.toLocaleString("en-IN")} of that overlap.`, status: close(bookingExcelAmount, pdf.booking) ? "matched" : "review" },
+    { label: "Cancellation classification", pdfAmount: pdf.cancellation, excelAmount: excel.plainCancellationFare, variance: round(excel.plainCancellationFare - pdf.cancellation), explanation: `${excel.cancellationRows} rows sit in cancellation-type sections; the plain Cancellation fare is compared with the PDF cancellation category (bus-cancelled and exceptional-refund rows are separate PDF categories).`, status: close(excel.plainCancellationFare, pdf.cancellation) ? "matched" : "review" },
     { label: "Subscription/detail deductions", pdfAmount: subscriptionMatched, excelAmount: excel.subscriptionTotal, variance: round(excel.subscriptionTotal - subscriptionMatched), explanation: "Dynamic Pricing, SRP, Sponsored Listing and Nova are matched to individual or grouped Excel detail lines using source row references.", status: close(excel.subscriptionTotal, subscriptionMatched) ? "matched" : "review" },
     { label: "Final settlement formula", pdfAmount: final, excelAmount: computedFinal, variance: round(computedFinal - final), explanation: "PDF invoice amount before adjustment plus the extracted adjustment-summary total.", status: close(computedFinal, final) ? "matched" : "review" },
   ];
