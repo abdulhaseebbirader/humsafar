@@ -109,6 +109,8 @@ export default function Home() {
   const [showAll, setShowAll] = useState(false);
   const [error, setError] = useState("");
   const [savedReportCount, setSavedReportCount] = useState(0);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [history, setHistory] = useState<Array<{ savedAt: string; result: Reconciliation }>>([]);
   const resultRef = useRef<HTMLDivElement | null>(null);
   const inFlight = useRef(false);
   const canRun = Boolean(vendor && client);
@@ -156,13 +158,30 @@ export default function Home() {
 
   useEffect(() => {
     try {
-      const saved = JSON.parse(window.localStorage.getItem("humsafarai:reconciliation-reports") || "[]") as unknown[];
+      const saved = JSON.parse(window.localStorage.getItem("humsafarai:reconciliation-reports") || "[]") as Array<{ savedAt: string; result: Reconciliation }>;
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setSavedReportCount(saved.length);
     } catch {
       setSavedReportCount(0);
     }
   }, []);
+
+  const openHistory = () => {
+    try {
+      const saved = JSON.parse(window.localStorage.getItem("humsafarai:reconciliation-reports") || "[]") as Array<{ savedAt: string; result: Reconciliation }>;
+      setHistory(saved);
+    } catch {
+      setHistory([]);
+    }
+    setHistoryOpen(true);
+  };
+
+  const restoreHistoryItem = (saved: { savedAt: string; result: Reconciliation }) => {
+    setResult(saved.result);
+    setError("");
+    setDownloaded(false);
+    setHistoryOpen(false);
+  };
 
   useEffect(() => {
     if (result && window.matchMedia("(max-width: 900px)").matches) {
@@ -247,6 +266,9 @@ export default function Home() {
             </div>
           ))}
         </nav>
+        <button className="history-btn" onClick={openHistory}>
+          History ({savedReportCount})
+        </button>
         <div className="topnav-badge">
           <span className="live-dot" /> local · {savedReportCount} report{savedReportCount === 1 ? "" : "s"} saved
         </div>
@@ -464,6 +486,37 @@ export default function Home() {
           )}
         </div>
       </section>
+
+      {historyOpen && (
+        <section className="history-panel" aria-label="Reconciliation history">
+          <div className="history-head">
+            <div>
+              <span className="kicker">Saved locally</span>
+              <h2>Reconciliation history</h2>
+              <p>Previous reports are stored only in this browser.</p>
+            </div>
+            <button className="outline-btn" onClick={() => setHistoryOpen(false)}>Close</button>
+          </div>
+          {history.length === 0 ? (
+            <p className="history-empty">No reconciliation reports have been saved yet.</p>
+          ) : (
+            <div className="history-list">
+              {history.map((saved, index) => (
+                <button className="history-row" key={`${saved.savedAt}-${index}`} onClick={() => restoreHistoryItem(saved)}>
+                  <span>
+                    <strong>{saved.result.source.invoiceNo || "Reconciliation report"}</strong>
+                    <small>{saved.result.source.operator} · {saved.result.source.period}</small>
+                  </span>
+                  <span className="history-meta">
+                    <b>{saved.result.coverage.matchedBookings.toLocaleString("en-IN")} matched</b>
+                    <small>{new Date(saved.savedAt).toLocaleString()}</small>
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
 
       <div className="mobile-bar">
         <button onClick={reconcile} disabled={!canRun || loading} className="run-btn">
