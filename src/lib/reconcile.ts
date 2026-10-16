@@ -239,47 +239,84 @@ type ClientRow = {
 };
 
 function parseClient(rows: string[][]) {
-  const headerIndex = rows.findIndex((row) => cellAt(row, 0) === "No." && /particular/i.test(cellAt(row, 2)));
+  const legacyHeaderIndex = rows.findIndex((row) => cellAt(row, 0) === "No." && /particular/i.test(cellAt(row, 2)));
+  const adviceHeaderIndex = rows.findIndex(
+    (row) => /^(TIN|Ticket\s*(No|Number))$/i.test(cellAt(row, 0)) && /^PNR$/i.test(cellAt(row, 1)) && row.some((value) => /ticket\s*fare/i.test(value)),
+  );
+  const headerIndex = legacyHeaderIndex >= 0 ? legacyHeaderIndex : adviceHeaderIndex;
   if (headerIndex < 0) {
     const looksLikeVendor = rows.some((row) => /Payment Advice/i.test(cellAt(row, 0)));
     throw new Error(
       looksLikeVendor
         ? "The client slot holds a vendor payment advice. Please swap the two files."
-        : "This CSV is not a supported client transaction report (no “No. / Particulares” header found).",
+        : "This CSV is not a supported client transaction report (expected a RedBus ledger or TIN / PNR transaction table).",
     );
   }
+
   const top = rows[0] ?? [];
   const agentAt = top.findIndex((value) => /^Agent\s*:/i.test(value.trim()));
   const agent = agentAt >= 0 ? cellAt(top, agentAt + 1) : "";
   const periodMatch = top.join(" ").match(/From\s*:\s*(\S+)\s*To\s*:\s*(\S+)/i);
   const clientPeriod = periodMatch ? `${periodMatch[1]} to ${periodMatch[2]}` : "";
   const company = cellAt(top, 0);
-
   const data: ClientRow[] = [];
   let printedDebit: number | undefined;
   let printedCredit: number | undefined;
-  for (const row of rows.slice(headerIndex + 1)) {
-    const first = cellAt(row, 0);
-    if (/^Total\s*:/i.test(first)) {
-      printedDebit = money(cellAt(row, 7));
-      printedCredit = money(cellAt(row, 8));
-      continue;
+
+  if (legacyHeaderIndex >= 0) {
+    for (const row of rows.slice(legacyHeaderIndex + 1)) {
+      const first = cellAt(row, 0);
+      if (/^Total\s*:/i.test(first)) {
+        printedDebit = money(cellAt(row, 7));
+        printedCredit = money(cellAt(row, 8));
+        continue;
+      }
+      if (!/^\d+$/.test(first)) continue;
+      const match = cellAt(row, 2).match(/^([BC])\s*:\s*(\S+)/i);
+      if (!match) continue;
+      data.push({
+        type: match[1].toUpperCase() as "B" | "C",
+        pnr: match[2],
+        route: cellAt(row, 3),
+        journey: cellAt(row, 4),
+        seats: Math.abs(money(cellAt(row, 5))),
+        discount: money(cellAt(row, 6)),
+        amount: money(cellAt(row, 7)),
+        commission: money(cellAt(row, 9)),
+        debit: money(cellAt(row, 11)),
+        credit: money(cellAt(row, 12)),
+      });
     }
-    if (!/^\d+$/.test(first)) continue;
-    const match = cellAt(row, 2).match(/^([BC])\s*:\s*(\S+)/i);
-    if (!match) continue;
-    data.push({
-      type: match[1].toUpperCase() as "B" | "C",
-      pnr: match[2],
-      route: cellAt(row, 3),
-      journey: cellAt(row, 4),
-      seats: Math.abs(money(cellAt(row, 5))),
-      discount: money(cellAt(row, 6)),
-      amount: money(cellAt(row, 7)),
-      commission: money(cellAt(row, 9)),
-      debit: money(cellAt(row, 11)),
-      credit: money(cellAt(row, 12)),
-    });
+  } else {
+    const header = rows[adviceHeaderIndex];
+    const column = (pattern: RegExp) => header.findIndex((value) => pattern.test(value.trim()));
+    const pnrColumn = column(/^PNR$/i);
+    const dateColumn = column(/^DOM$/i) >= 0 ? column(/^DOM$/i) : column(/^DOE$/i);
+    const routeColumn = column(/^Route$/i);
+    const seatColumn = column(/^Seats$/i);
+    const fareColumn = column(/^Ticket\s*Fare$/i);
+    const commissionColumn = column(/^Total\s*Commission\s*With\s*GST$/i);
+    const netColumn = column(/^NetPayable$/i);
+    const offerColumn = column(/^Others$/i);
+    for (const row of rows.slice(adviceHeaderIndex + 1)) {
+      const pnr = cellAt(row, pnrColumn);
+      if (!pnr || /^total/i.test(pnr) || !/^\d+$/.test(cellAt(row, 1))) continue;
+      const fare = money(cellAt(row, fareColumn));
+      const net = money(cellAt(row, netColumn));
+      const commission = money(cellAt(row, commissionColumn));
+      data.push({
+        type: "B",
+        pnr,
+        route: cellAt(row, routeColumn),
+        journey: cellAt(row, dateColumn),
+        seats: Math.max(1, cellAt(row, seatColumn).split(",").filter(Boolean).length),
+        discount: money(cellAt(row, offerColumn)),
+        amount: fare,
+        commission,
+        debit: net,
+        credit: 0,
+      });
+    }
   }
   if (!data.length) throw new Error("The client transaction report has no booking or cancellation rows.");
   return { agent, company, clientPeriod, data, printedDebit, printedCredit };
