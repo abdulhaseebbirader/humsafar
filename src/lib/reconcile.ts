@@ -75,7 +75,10 @@ function adjustmentRows(text: string) {
 
 async function parsePdf(buffer: Buffer) {
   const output = await pdfParse(buffer);
-  const rawText = output.text;
+  // pdf-parse wraps long numbers across lines ("1,004,897.7" + "3"); rejoin a
+  // numeric fragment that ends inside its decimals with the following digits
+  // before any positional extraction happens.
+  const rawText = output.text.replace(/(\d[\d,]*\.\d?)\r?\n(?=\d)/g, "$1");
   const text = normalized(rawText);
   const lower = text.toLowerCase();
   const requiredMarkers = ["Payment Advice", "Invoice Summary", "Invoice Amount(Z)", "Adjustment Summary", "Total(X)", "Invoice Amount After Adjustment", "Booking (a)", "Cancellation (b)"];
@@ -95,6 +98,13 @@ async function parsePdf(buffer: Buffer) {
   const values = {
     booking: summaryAmounts[0], cancellation: summaryAmounts[5], cancellationCharges: summaryAmounts[8], busCancellation: summaryAmounts[10], exceptionalRefund: summaryAmounts[13], dynamicPricing: summaryAmounts[14], operatorOffers: summaryAmounts[16],
   } as PdfCategoryFields;
+  const invoiceSummaryLine = lines.slice(summaryIndex + 1).find(line => /^\d[\d,]*\.\d{2}$/.test(line));
+  const invoiceBeforeAdjustment = invoiceSummaryLine ? money(invoiceSummaryLine) : undefined;
+  const totalLineIndex = lines.findIndex(line => line.toLowerCase().includes("total(x)"));
+  const adjustment = decimalNumbers(lines.slice(Math.max(0, totalLineIndex - 3), totalLineIndex + 1).join(" ")).at(-1);
+  const finalLineIndex = lines.findIndex(line => line.toLowerCase().includes("invoice amount after adjustment"));
+  const finalSettlement = decimalNumbers(lines.slice(Math.max(0, finalLineIndex - 3), finalLineIndex + 1).join(" ")).at(-1);
+
   const afterLines = (needle: string, position: "first" | "last" = "last") => {
     const sourceLines = rawText.split("\n");
     const index = sourceLines.findLastIndex(line => line.toLowerCase().includes(needle.toLowerCase()));
@@ -103,6 +113,9 @@ async function parsePdf(buffer: Buffer) {
     if (index >= 0) for (const line of sourceLines.slice(index + 1, index + 20)) {
       const parsed = lineNumbers(line);
       if (!parsed.length) { if (started) break; continue; }
+      // the invoice-total boxes sit between deduction rows in the text stream;
+      // a number equal to a settlement total means the row's cluster ended
+      if (started && parsed.some(n => (finalSettlement !== undefined && n === finalSettlement) || (invoiceBeforeAdjustment !== undefined && n === invoiceBeforeAdjustment))) break;
       started = true;
       numbers.push(...parsed);
       if (numbers.length >= 5) break;
@@ -125,12 +138,6 @@ async function parsePdf(buffer: Buffer) {
   values.sponsored = afterLines("Sponsored Listing (u)", "last");
   values.nova = afterLines("Nova (v)", "first");
 
-  const invoiceSummaryLine = lines.slice(summaryIndex + 1).find(line => /^\d[\d,]*\.\d{2}$/.test(line));
-  const invoiceBeforeAdjustment = invoiceSummaryLine ? money(invoiceSummaryLine) : undefined;
-  const totalLineIndex = lines.findIndex(line => line.toLowerCase().includes("total(x)"));
-  const adjustment = decimalNumbers(lines.slice(Math.max(0, totalLineIndex - 3), totalLineIndex + 1).join(" ")).at(-1);
-  const finalLineIndex = lines.findIndex(line => line.toLowerCase().includes("invoice amount after adjustment"));
-  const finalSettlement = decimalNumbers(lines.slice(Math.max(0, finalLineIndex - 3), finalLineIndex + 1).join(" ")).at(-1);
   if (invoiceBeforeAdjustment === undefined || adjustment === undefined || finalSettlement === undefined) throw new Error("The payment advice is missing a complete invoice-before-adjustment, adjustment, or final-settlement amount.");
   const operatorMatch = text.match(/(?:^|\s)([A-Za-z][A-Za-z .&'-]+?)\s+GSTIN\s*:/i);
   const invoiceMatch = text.match(/\b(\d{9}-\d{6})\b/);
