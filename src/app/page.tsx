@@ -50,7 +50,7 @@ function FileBox({
       }}
     >
       <input type="file" accept={accept} onChange={(e) => onChange(e.target.files?.[0] ?? null)} />
-      <div className="file-icon">{isPdf ? <FileText size={20} /> : <FileSpreadsheet size={20} />}</div>
+      <div className="file-icon">{isPdf ? <FileText size={22} /> : <FileSpreadsheet size={22} />}</div>
       <div className="file-copy">
         <strong>{isPdf ? "Payment advice PDF" : "Detailed Excel export"}</strong>
         <span>{file ? file.name : isPdf ? "Drop the settlement advice here" : "Drop the .xls or .xlsx here"}</span>
@@ -145,7 +145,6 @@ export default function Home() {
     }
   }, [pdf, excel, reconcile]);
 
-  // Bring the result canvas into view once it fills in (mainly on mobile).
   useEffect(() => {
     if (result && window.matchMedia("(max-width: 900px)").matches) {
       resultRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -156,11 +155,13 @@ export default function Home() {
     setPdf(file);
     setResult(null);
     setError("");
+    setDownloaded(false);
   };
   const chooseExcel = (file: File | null) => {
     setExcel(file);
     setResult(null);
     setError("");
+    setDownloaded(false);
   };
   const subscriptionSum = useMemo(
     () =>
@@ -208,260 +209,243 @@ export default function Home() {
 
   const step1Done = Boolean(pdf && excel);
   const step2Done = Boolean(result);
+  const steps = [
+    { n: "01", label: "Load evidence", state: step1Done ? "done" : "active" },
+    { n: "02", label: "Reconcile", state: step2Done ? "done" : loading ? "active" : "idle" },
+    { n: "03", label: "Share result", state: downloaded ? "done" : step2Done ? "active" : "idle" },
+  ];
+
   return (
     <div className="app-shell">
-      <aside className="rail">
+      <header className="topnav">
         <div className="brand">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img className="brand-mark brand-logo" src="/humsafarai-logo.png" alt="HumsafarAI logo" />
+          <img className="brand-logo" src="/humsafarai-logo.png" alt="HumsafarAI logo" />
           <div>
             <strong>HumsafarAI</strong>
             <span>settlement control</span>
           </div>
         </div>
-        <div className="rail-rule" />
-        <div className="steps">
-          <div className={`step ${step1Done ? "complete" : "active"}`}>
-            <span>01</span>
-            <div>
-              <strong>Load evidence</strong>
-              <small>PDF + Excel</small>
+        <nav className="step-track" aria-label="Workflow">
+          {steps.map((step, i) => (
+            <div className={`track-step ${step.state}`} key={step.n}>
+              <span className="track-dot">{step.state === "done" ? <Check size={11} /> : step.n}</span>
+              <span className="track-label">{step.label}</span>
+              {i < steps.length - 1 && <span className="track-line" />}
             </div>
-            {step1Done && <Check size={14} className="step-tick" />}
-          </div>
-          <div className={`step ${step2Done ? "complete" : loading ? "active" : ""}`}>
-            <span>02</span>
-            <div>
-              <strong>Reconcile</strong>
-              <small>Detect overlap</small>
-            </div>
-            {step2Done && <Check size={14} className="step-tick" />}
-          </div>
-          <div className={`step ${downloaded ? "complete" : step2Done ? "active" : ""}`}>
-            <span>03</span>
-            <div>
-              <strong>Share result</strong>
-              <small>Download PDF</small>
-            </div>
-            {downloaded && <Check size={14} className="step-tick" />}
-          </div>
+          ))}
+        </nav>
+        <div className="topnav-badge">
+          <span className="live-dot" /> local · nothing stored
         </div>
-        <div className="rail-note">
-          <ShieldCheck size={17} />
-          <p>
-            <strong>Evidence first</strong>
-            <br />
-            Every total is tied back to a source file or formula.
-          </p>
-        </div>
-      </aside>
-      <main className="main">
-        <header className="topbar">
-          <div>
-            <span className="eyebrow">PAYMENT ADVICE / CONTROL ROOM</span>
-            <h1>Follow the money.</h1>
-            <p>Turn two messy files into one defensible answer.</p>
-          </div>
-          <div className="topbar-badge">
-            <span className="live-dot" /> local analysis · no files stored
-          </div>
-        </header>
-        <section className="workspace">
-          <div className="upload-panel">
-            <div className="section-kicker">
-              <span>01</span>
-              <span>Load evidence</span>
-            </div>
+      </header>
+
+      <section className="hero">
+        <span className="eyebrow">PAYMENT ADVICE / CONTROL ROOM</span>
+        <h1>Follow the money.</h1>
+        <p>Turn two messy files into one defensible answer.</p>
+      </section>
+
+      <section className="workspace">
+        <div className="panel upload-panel">
+          <div className="panel-head">
+            <span className="kicker">01 · Load evidence</span>
             <h2>Bring the two sides together.</h2>
             <p className="lead">
               Upload the payment advice and its detailed export. HumsafarAI reads both, separates embedded
               cancellations, and builds the settlement bridge.
             </p>
-            <div className="file-stack">
-              <FileBox kind="pdf" file={pdf} onChange={choosePdf} />
-              <FileBox kind="excel" file={excel} onChange={chooseExcel} />
-            </div>
-            {error && <div className="error-box">{error}</div>}
-            <div className="upload-actions">
-              <button onClick={reconcile} disabled={!canRun || loading} className="run-btn">
-                {loading ? (
-                  <>
-                    <RefreshCw className="spin" size={17} /> Reading files…
-                  </>
-                ) : (
-                  <>
-                    Run reconciliation <ArrowRight size={17} />
-                  </>
-                )}
-              </button>
-              {!canRun && <span className="hint">Upload both files to generate a reconciliation result.</span>}
-              {canRun && loading && <span className="hint">Both files received — reconciling automatically.</span>}
-            </div>
           </div>
-          <div className="result-panel" ref={resultRef}>
-            <div className="result-header">
-              <div className="section-kicker">
-                <span>02</span>
-                <span>Reconciliation result</span>
-              </div>
-              <div className="result-actions">
-                <span className="confidence">
-                  <span className="live-dot" />{" "}
-                  {result ? (reviewCount ? `${reviewCount} to review` : "ready to review") : loading ? "working" : "waiting"}
-                </span>
-                <button className="outline-btn" onClick={downloadReport} disabled={!result}>
-                  <Download size={15} /> Download PDF
-                </button>
-              </div>
-            </div>
-            {result ? (
-              <div className="result-body">
-                <div className="identity">
-                  <div>
-                    <span className="label">OPERATOR</span>
-                    <strong>{result.source.operator}</strong>
-                  </div>
-                  <div>
-                    <span className="label">INVOICE</span>
-                    <strong>{result.source.invoiceNo}</strong>
-                  </div>
-                  <div>
-                    <span className="label">PERIOD</span>
-                    <strong>{result.source.period}</strong>
-                  </div>
-                </div>
-                <div className="hero-total">
-                  <div>
-                    <span className="label">FINAL SETTLEMENT</span>
-                    <div className="amount">{inr(result.pdf.finalSettlement)}</div>
-                    <p>
-                      after adjustment <b>{inr(result.pdf.adjustment)}</b>
-                    </p>
-                  </div>
-                  <div className={`verified ${reviewCount ? "needs-review" : ""}`}>
-                    {reviewCount ? (
-                      <>
-                        <AlertTriangle size={15} /> {reviewCount} to review
-                      </>
-                    ) : (
-                      <>
-                        <Check size={17} /> reconciled
-                      </>
-                    )}
-                  </div>
-                </div>
-                <div className="bridge">
-                  <div className="bridge-title">
-                    <span>SETTLEMENT BRIDGE</span>
-                    <span className="mono">invoice → final</span>
-                  </div>
-                  {result.bridge.map((item, i) => (
-                    <div className={`bridge-row ${item.kind}`} key={i}>
-                      <span>{item.label}</span>
-                      <strong>
-                        {item.amount < 0 ? "−" : ""}
-                        {inr(Math.abs(item.amount))}
-                      </strong>
-                    </div>
-                  ))}
-                </div>
-                <div className="summary-grid">
-                  <div className="metric-card">
-                    <span className="label">EXCEL BOOKING ROWS</span>
-                    <strong>{Number(result.excel.bookingRows).toLocaleString("en-IN")}</strong>
-                    <small>raw booking detail</small>
-                  </div>
-                  <div className="metric-card">
-                    <span className="label">CANCELLATION OVERLAP</span>
-                    <strong>{inr(result.excel.embeddedCancellationFare)}</strong>
-                    <small>excluded from active total</small>
-                  </div>
-                  <div className="metric-card">
-                    <span className="label">SUBSCRIPTION MATCH</span>
-                    <strong>{inr(subscriptionSum)}</strong>
-                    <small>4 PDF deductions matched</small>
-                  </div>
-                </div>
-                <div className="match-strip">
-                  <div className="subhead">
-                    <span>SUBSCRIPTION DETAIL MATCH</span>
-                    <span className="mono">PDF ↔ Excel</span>
-                  </div>
-                  {(result.excel.subscriptionItems || []).map((item, i) => (
-                    <div className="match-row" key={i}>
-                      <span>{item.label}</span>
-                      <strong>{inr(item.amount)}</strong>
-                      <em className={item.matched ? "matched" : "unmatched"}>{item.matched || "Review"}</em>
-                    </div>
-                  ))}
-                </div>
-                <div className="differences">
-                  <div className="subhead">
-                    <span>WHERE DIFFERENCES OCCUR</span>
-                    <span className="mono">PDF ↔ Excel</span>
-                  </div>
-                  {(result.differences || []).map((item, i) => (
-                    <div className="difference-row" key={i}>
-                      <div className={`difference-badge ${item.status === "matched" ? "match" : "variance"}`}>
-                        {item.status === "matched" ? <Check size={13} /> : <AlertTriangle size={13} />}
-                      </div>
-                      <div className="difference-main">
-                        <strong>{item.label}</strong>
-                        <p>{item.explanation}</p>
-                      </div>
-                      <div className="difference-values">
-                        <span>PDF {inr(item.pdfAmount)}</span>
-                        <span>Excel {inr(item.excelAmount)}</span>
-                        <b className={item.variance === 0 ? "zero" : "nonzero"}>
-                          {item.variance > 0 ? "+" : ""}
-                          {inr(item.variance)}
-                        </b>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-                <div className="checks">
-                  <div className="subhead">
-                    <span>CONTROL CHECKS</span>
-                    <span className="mono">source / calculated / variance</span>
-                  </div>
-                  {result.checks.map((item, i) => (
-                    <CheckRow item={item} key={i} />
-                  ))}
-                </div>
-              </div>
-            ) : loading ? (
-              <ResultSkeleton />
-            ) : (
-              <div className="empty-state">
-                <UploadCloud size={30} />
-                <strong>Upload both files to begin</strong>
-                <span>The result canvas will appear here.</span>
-              </div>
-            )}
+          <div className="file-stack">
+            <FileBox kind="pdf" file={pdf} onChange={choosePdf} />
+            <FileBox kind="excel" file={excel} onChange={chooseExcel} />
           </div>
-        </section>
-        <div className="mobile-bar">
-          <button onClick={reconcile} disabled={!canRun || loading} className="run-btn">
-            {loading ? (
-              <>
-                <RefreshCw className="spin" size={15} /> Reading…
-              </>
-            ) : (
-              <>
-                Reconcile <ArrowRight size={15} />
-              </>
-            )}
-          </button>
-          <button className="outline-btn" onClick={downloadReport} disabled={!result}>
-            <Download size={15} /> PDF
-          </button>
+          {error && <div className="error-box">{error}</div>}
+          <div className="upload-actions">
+            <button onClick={reconcile} disabled={!canRun || loading} className="run-btn">
+              {loading ? (
+                <>
+                  <RefreshCw className="spin" size={17} /> Reading files…
+                </>
+              ) : (
+                <>
+                  Run reconciliation <ArrowRight size={17} />
+                </>
+              )}
+            </button>
+            {!canRun && <span className="hint">Upload both files to generate a reconciliation result.</span>}
+            {canRun && loading && <span className="hint">Both files received — reconciling automatically.</span>}
+          </div>
+          <div className="panel-note">
+            <ShieldCheck size={15} />
+            <p>
+              <strong>Evidence first.</strong> Every total is tied back to a source file or formula.
+            </p>
+          </div>
         </div>
-        <footer>
-          <span>HumsafarAI v1.0</span>
-          <span>Built for shareable, audit-ready answers</span>
-        </footer>
-      </main>
+
+        <div className="panel result-panel" ref={resultRef}>
+          <div className="result-header">
+            <span className="kicker">02 · Reconciliation result</span>
+            <div className="result-actions">
+              <span className="confidence">
+                <span className="live-dot" />{" "}
+                {result ? (reviewCount ? `${reviewCount} to review` : "ready to review") : loading ? "working" : "waiting"}
+              </span>
+              <button className="outline-btn" onClick={downloadReport} disabled={!result}>
+                <Download size={15} /> Download PDF
+              </button>
+            </div>
+          </div>
+          {result ? (
+            <div className="result-body">
+              <div className="identity">
+                <div>
+                  <span className="label">OPERATOR</span>
+                  <strong>{result.source.operator}</strong>
+                </div>
+                <div>
+                  <span className="label">INVOICE</span>
+                  <strong>{result.source.invoiceNo}</strong>
+                </div>
+                <div>
+                  <span className="label">PERIOD</span>
+                  <strong>{result.source.period}</strong>
+                </div>
+              </div>
+              <div className="hero-total">
+                <div>
+                  <span className="label">FINAL SETTLEMENT</span>
+                  <div className="amount">{inr(result.pdf.finalSettlement)}</div>
+                  <p>
+                    after adjustment <b>{inr(result.pdf.adjustment)}</b>
+                  </p>
+                </div>
+                <div className={`verified ${reviewCount ? "needs-review" : ""}`}>
+                  {reviewCount ? (
+                    <>
+                      <AlertTriangle size={15} /> {reviewCount} to review
+                    </>
+                  ) : (
+                    <>
+                      <Check size={17} /> reconciled
+                    </>
+                  )}
+                </div>
+              </div>
+              <div className="bridge">
+                <div className="bridge-title">
+                  <span>SETTLEMENT BRIDGE</span>
+                  <span className="mono">invoice → final</span>
+                </div>
+                {result.bridge.map((item, i) => (
+                  <div className={`bridge-row ${item.kind}`} key={i}>
+                    <span>{item.label}</span>
+                    <strong>
+                      {item.amount < 0 ? "−" : ""}
+                      {inr(Math.abs(item.amount))}
+                    </strong>
+                  </div>
+                ))}
+              </div>
+              <div className="summary-grid">
+                <div className="metric-card">
+                  <span className="label">EXCEL BOOKING ROWS</span>
+                  <strong>{Number(result.excel.bookingRows).toLocaleString("en-IN")}</strong>
+                  <small>raw booking detail</small>
+                </div>
+                <div className="metric-card">
+                  <span className="label">CANCELLATION OVERLAP</span>
+                  <strong>{inr(result.excel.embeddedCancellationFare)}</strong>
+                  <small>excluded from active total</small>
+                </div>
+                <div className="metric-card">
+                  <span className="label">SUBSCRIPTION MATCH</span>
+                  <strong>{inr(subscriptionSum)}</strong>
+                  <small>4 PDF deductions matched</small>
+                </div>
+              </div>
+              <div className="match-strip">
+                <div className="subhead">
+                  <span>SUBSCRIPTION DETAIL MATCH</span>
+                  <span className="mono">PDF ↔ Excel</span>
+                </div>
+                {(result.excel.subscriptionItems || []).map((item, i) => (
+                  <div className="match-row" key={i}>
+                    <span>{item.label}</span>
+                    <strong>{inr(item.amount)}</strong>
+                    <em className={item.matched ? "matched" : "unmatched"}>{item.matched || "Review"}</em>
+                  </div>
+                ))}
+              </div>
+              <div className="differences">
+                <div className="subhead">
+                  <span>WHERE DIFFERENCES OCCUR</span>
+                  <span className="mono">PDF ↔ Excel</span>
+                </div>
+                {(result.differences || []).map((item, i) => (
+                  <div className="difference-row" key={i}>
+                    <div className={`difference-badge ${item.status === "matched" ? "match" : "variance"}`}>
+                      {item.status === "matched" ? <Check size={13} /> : <AlertTriangle size={13} />}
+                    </div>
+                    <div className="difference-main">
+                      <strong>{item.label}</strong>
+                      <p>{item.explanation}</p>
+                    </div>
+                    <div className="difference-values">
+                      <span>PDF {inr(item.pdfAmount)}</span>
+                      <span>Excel {inr(item.excelAmount)}</span>
+                      <b className={item.variance === 0 ? "zero" : "nonzero"}>
+                        {item.variance > 0 ? "+" : ""}
+                        {inr(item.variance)}
+                      </b>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="checks">
+                <div className="subhead">
+                  <span>CONTROL CHECKS</span>
+                  <span className="mono">source / calculated / variance</span>
+                </div>
+                {result.checks.map((item, i) => (
+                  <CheckRow item={item} key={i} />
+                ))}
+              </div>
+            </div>
+          ) : loading ? (
+            <ResultSkeleton />
+          ) : (
+            <div className="empty-state">
+              <UploadCloud size={30} />
+              <strong>Upload both files to begin</strong>
+              <span>The result canvas will appear here.</span>
+            </div>
+          )}
+        </div>
+      </section>
+
+      <div className="mobile-bar">
+        <button onClick={reconcile} disabled={!canRun || loading} className="run-btn">
+          {loading ? (
+            <>
+              <RefreshCw className="spin" size={15} /> Reading…
+            </>
+          ) : (
+            <>
+              Reconcile <ArrowRight size={15} />
+            </>
+          )}
+        </button>
+        <button className="outline-btn" onClick={downloadReport} disabled={!result}>
+          <Download size={15} /> PDF
+        </button>
+      </div>
+
+      <footer>
+        <span>HumsafarAI v1.0</span>
+        <span>Built for shareable, audit-ready answers</span>
+      </footer>
     </div>
   );
 }
