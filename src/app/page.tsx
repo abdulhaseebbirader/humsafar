@@ -7,33 +7,29 @@ import {
   Check,
   Download,
   FileSpreadsheet,
-  FileText,
   RefreshCw,
   ShieldCheck,
   UploadCloud,
 } from "lucide-react";
-import { normalizeExcelInBrowser } from "@/lib/excel";
-import type { Reconciliation } from "@/lib/reconcile";
+import { reconcileCsv, type Reconciliation } from "@/lib/reconcile";
 
 const inr = (v: number) =>
   `₹${Number(v || 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const signed = (v: number) => `${v > 0 ? "+" : v < 0 ? "−" : ""}${inr(Math.abs(v))}`;
+const COLLAPSED_EXCEPTIONS = 12;
 
 function FileBox({
   kind,
   file,
   onChange,
 }: {
-  kind: "csv" | "excel";
+  kind: "vendor" | "client";
   file: File | null;
   onChange: (f: File | null) => void;
 }) {
-  const isCsv = kind === "csv";
   const [dragging, setDragging] = useState(false);
-  const accept = isCsv
-    ? ".csv,text/csv"
-    : ".xls,.xlsx,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
-  const matches = (f: File | undefined | null) =>
-    !!f && (isCsv ? /\.csv$/i.test(f.name) : /\.xlsx?$/i.test(f.name));
+  const isVendor = kind === "vendor";
+  const isCsv = (f: File | undefined | null) => !!f && /\.csv$/i.test(f.name);
   return (
     <label
       className={`file-box ${file ? "is-ready" : ""} ${dragging ? "is-dragging" : ""}`}
@@ -46,14 +42,18 @@ function FileBox({
         e.preventDefault();
         setDragging(false);
         const dropped = e.dataTransfer.files?.[0];
-        if (matches(dropped)) onChange(dropped);
+        if (isCsv(dropped)) onChange(dropped);
       }}
     >
-      <input type="file" accept={accept} onChange={(e) => onChange(e.target.files?.[0] ?? null)} />
-      <div className="file-icon">{isCsv ? <FileSpreadsheet size={22} /> : <FileSpreadsheet size={22} />}</div>
+      <input type="file" accept=".csv,text/csv" onChange={(e) => onChange(e.target.files?.[0] ?? null)} />
+      <div className="file-icon">
+        <FileSpreadsheet size={22} />
+      </div>
       <div className="file-copy">
-        <strong>{isCsv ? "Vendor CSV invoice" : "Client Excel invoice"}</strong>
-        <span>{file ? file.name : isCsv ? "Drop the vendor .csv here" : "Drop the client .xls or .xlsx here"}</span>
+        <strong>{isVendor ? "Vendor payment advice (CSV)" : "Client transaction report (CSV)"}</strong>
+        <span>
+          {file ? file.name : isVendor ? "Drop the vendor's invoice .csv here" : "Drop your own booking ledger .csv here"}
+        </span>
       </div>
       <div className="file-action">{file ? <Check size={18} /> : <UploadCloud size={18} />}</div>
     </label>
@@ -86,67 +86,48 @@ function ResultSkeleton() {
       <div className="skeleton-bar w-70" />
       <div className="skeleton-bar w-55" />
       <div className="skeleton-bar" />
-      <p className="skeleton-note">Parsing both files and building the settlement bridge…</p>
+      <p className="skeleton-note">Matching both files by PNR and building the settlement bridge…</p>
     </div>
   );
 }
 
 export default function Home() {
-  const [csv, setCsv] = useState<File | null>(null);
-  const [excel, setExcel] = useState<File | null>(null);
+  const [vendor, setVendor] = useState<File | null>(null);
+  const [client, setClient] = useState<File | null>(null);
   const [result, setResult] = useState<Reconciliation | null>(null);
   const [loading, setLoading] = useState(false);
   const [downloaded, setDownloaded] = useState(false);
+  const [showAll, setShowAll] = useState(false);
   const [error, setError] = useState("");
   const resultRef = useRef<HTMLDivElement | null>(null);
   const inFlight = useRef(false);
-  const canRun = Boolean(csv && excel);
+  const canRun = Boolean(vendor && client);
 
   const reconcile = useCallback(async () => {
-    if (!csv || !excel || inFlight.current) return;
+    if (!vendor || !client || inFlight.current) return;
     inFlight.current = true;
     setLoading(true);
     setError("");
     setResult(null);
+    setShowAll(false);
     try {
-      const excelSummary = await normalizeExcelInBrowser(excel);
-      const body = new FormData();
-      body.append("csv", csv);
-      body.append("excelName", excel.name);
-      body.append("excelSummary", JSON.stringify(excelSummary));
-      const response = await fetch("/api/reconcile", { method: "POST", body });
-      const responseText = await response.text();
-      let data: Reconciliation | { error?: string } = {} as Reconciliation;
-      try {
-        data = responseText ? JSON.parse(responseText) : ({} as Reconciliation);
-      } catch {
-        throw new Error(
-          response.ok
-            ? "The reconciliation response was not valid JSON."
-            : `Reconciliation service error (${response.status}). Please try again.`,
-        );
-      }
-      if (!response.ok)
-        throw new Error(
-          (data as { error?: string }).error || `Unable to reconcile these files (HTTP ${response.status}).`,
-        );
-      setResult(data as Reconciliation);
+      const [vendorText, clientText] = await Promise.all([vendor.text(), client.text()]);
+      setResult(reconcileCsv(vendorText, clientText, vendor.name, client.name));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Unable to reconcile these files.");
     } finally {
       inFlight.current = false;
       setLoading(false);
     }
-  }, [csv, excel]);
+  }, [vendor, client]);
 
-  // Auto-run once both files are selected; the async fetch in reconcile legitimately
-  // sets loading/result state from this effect.
+  // Auto-run once both files are selected; reconcile legitimately sets loading/result state.
   useEffect(() => {
-    if (csv && excel) {
+    if (vendor && client) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       void reconcile();
     }
-  }, [csv, excel, reconcile]);
+  }, [vendor, client, reconcile]);
 
   useEffect(() => {
     if (result && window.matchMedia("(max-width: 900px)").matches) {
@@ -154,28 +135,20 @@ export default function Home() {
     }
   }, [result]);
 
-  const chooseCsv = (file: File | null) => {
-    setCsv(file);
+  const resetOutput = () => {
     setResult(null);
     setError("");
     setDownloaded(false);
   };
-  const chooseExcel = (file: File | null) => {
-    setExcel(file);
-    setResult(null);
-    setError("");
-    setDownloaded(false);
+  const chooseVendor = (file: File | null) => {
+    setVendor(file);
+    resetOutput();
   };
-  const subscriptionSum = useMemo(
-    () =>
-      result
-        ? [result.pdf.dynamicPricing, result.pdf.srp, result.pdf.sponsored, result.pdf.nova].reduce(
-            (a, b) => a + Number(b || 0),
-            0,
-          )
-        : 0,
-    [result],
-  );
+  const chooseClient = (file: File | null) => {
+    setClient(file);
+    resetOutput();
+  };
+
   const reviewCount = useMemo(
     () =>
       result
@@ -184,6 +157,7 @@ export default function Home() {
         : 0,
     [result],
   );
+  const visibleExceptions = result ? (showAll ? result.exceptions : result.exceptions.slice(0, COLLAPSED_EXCEPTIONS)) : [];
 
   async function downloadReport() {
     if (!result) return;
@@ -201,7 +175,7 @@ export default function Home() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `humsafarAI-${result.source.invoiceNo || "report"}.pdf`;
+      a.download = `humsafarAI-${result.source.invoiceNo.replace(/[^\w-]+/g, "-") || "report"}.pdf`;
       a.click();
       URL.revokeObjectURL(url);
       setDownloaded(true);
@@ -210,7 +184,7 @@ export default function Home() {
     }
   }
 
-  const step1Done = Boolean(csv && excel);
+  const step1Done = Boolean(vendor && client);
   const step2Done = Boolean(result);
   const steps = [
     { n: "01", label: "Load evidence", state: step1Done ? "done" : "active" },
@@ -246,7 +220,7 @@ export default function Home() {
       <section className="hero">
         <span className="eyebrow">PAYMENT ADVICE / CONTROL ROOM</span>
         <h1>Follow the money.</h1>
-        <p>Turn two messy files into one defensible answer.</p>
+        <p>Your ledger against the vendor&apos;s invoice, ticket by ticket.</p>
       </section>
 
       <section className="workspace">
@@ -255,13 +229,13 @@ export default function Home() {
             <span className="kicker">01 · Load evidence</span>
             <h2>Bring the two sides together.</h2>
             <p className="lead">
-              Upload the payment advice and its detailed export. HumsafarAI reads both, separates embedded
-              cancellations, and builds the settlement bridge.
+              Upload the vendor&apos;s payment advice and your own transaction report, both as CSV. HumsafarAI matches
+              every ticket by PNR and builds the bridge from your ledger to the vendor&apos;s settlement.
             </p>
           </div>
           <div className="file-stack">
-            <FileBox kind="csv" file={csv} onChange={chooseCsv} />
-            <FileBox kind="excel" file={excel} onChange={chooseExcel} />
+            <FileBox kind="vendor" file={vendor} onChange={chooseVendor} />
+            <FileBox kind="client" file={client} onChange={chooseClient} />
           </div>
           {error && <div className="error-box">{error}</div>}
           <div className="upload-actions">
@@ -276,13 +250,13 @@ export default function Home() {
                 </>
               )}
             </button>
-            {!canRun && <span className="hint">Upload both files to generate a reconciliation result.</span>}
+            {!canRun && <span className="hint">Upload both CSV files to generate a reconciliation result.</span>}
             {canRun && loading && <span className="hint">Both files received — reconciling automatically.</span>}
           </div>
           <div className="panel-note">
             <ShieldCheck size={15} />
             <p>
-              <strong>Evidence first.</strong> Every total is tied back to a source file or formula.
+              <strong>Evidence first.</strong> Files are read in your browser; every total is tied back to a source row.
             </p>
           </div>
         </div>
@@ -318,10 +292,11 @@ export default function Home() {
               </div>
               <div className="hero-total">
                 <div>
-                  <span className="label">FINAL SETTLEMENT</span>
-                  <div className="amount">{inr(result.pdf.finalSettlement)}</div>
+                  <span className="label">VENDOR SETTLES</span>
+                  <div className="amount">{inr(result.settlement.vendorFinal)}</div>
                   <p>
-                    after adjustment <b>{inr(result.pdf.adjustment)}</b>
+                    client ledger expects <b>{inr(result.settlement.clientNet)}</b> · gap{" "}
+                    <b>{signed(result.settlement.gap)}</b>
                   </p>
                 </div>
                 <div className={`verified ${reviewCount ? "needs-review" : ""}`}>
@@ -339,54 +314,47 @@ export default function Home() {
               <div className="bridge">
                 <div className="bridge-title">
                   <span>SETTLEMENT BRIDGE</span>
-                  <span className="mono">invoice → final</span>
+                  <span className="mono">client ledger → vendor final</span>
                 </div>
                 {result.bridge.map((item, i) => (
                   <div className={`bridge-row ${item.kind}`} key={i}>
                     <span>{item.label}</span>
                     <strong>
-                      {item.amount < 0 ? "−" : ""}
-                      {inr(Math.abs(item.amount))}
+                      {item.kind === "base" || item.kind === "final" ? inr(item.amount) : signed(item.amount)}
                     </strong>
                   </div>
                 ))}
               </div>
               <div className="summary-grid">
                 <div className="metric-card">
-                  <span className="label">EXCEL BOOKING ROWS</span>
-                  <strong>{Number(result.excel.bookingRows).toLocaleString("en-IN")}</strong>
-                  <small>raw booking detail</small>
+                  <span className="label">BOOKINGS MATCHED</span>
+                  <strong>
+                    {result.coverage.matchedBookings.toLocaleString("en-IN")} /{" "}
+                    {result.coverage.vendorBookings.toLocaleString("en-IN")}
+                  </strong>
+                  <small>
+                    {result.coverage.vendorOnlyBookings} vendor-only · {result.coverage.clientOnlyBookings} client-only
+                  </small>
                 </div>
                 <div className="metric-card">
-                  <span className="label">CANCELLATION OVERLAP</span>
-                  <strong>{inr(result.excel.embeddedCancellationFare)}</strong>
-                  <small>excluded from active total</small>
+                  <span className="label">CANCELLATIONS MATCHED</span>
+                  <strong>
+                    {result.coverage.matchedCancellations} / {result.coverage.vendorCancellations}
+                  </strong>
+                  <small>{result.coverage.clientCancellations} in client ledger</small>
                 </div>
                 <div className="metric-card">
-                  <span className="label">SUBSCRIPTION MATCH</span>
-                  <strong>{inr(subscriptionSum)}</strong>
-                  <small>4 vendor deductions matched</small>
+                  <span className="label">TICKETS TO REVIEW</span>
+                  <strong>{result.exceptionTotal.toLocaleString("en-IN")}</strong>
+                  <small>per-PNR differences</small>
                 </div>
-              </div>
-              <div className="match-strip">
-                <div className="subhead">
-                  <span>SUBSCRIPTION DETAIL MATCH</span>
-                  <span className="mono">CSV ↔ Excel</span>
-                </div>
-                {(result.excel.subscriptionItems || []).map((item, i) => (
-                  <div className="match-row" key={i}>
-                    <span>{item.label}</span>
-                    <strong>{inr(item.amount)}</strong>
-                    <em className={item.matched ? "matched" : "unmatched"}>{item.matched || "Review"}</em>
-                  </div>
-                ))}
               </div>
               <div className="differences">
                 <div className="subhead">
                   <span>WHERE DIFFERENCES OCCUR</span>
-                  <span className="mono">CSV ↔ Excel</span>
+                  <span className="mono">vendor ↔ client</span>
                 </div>
-                {(result.differences || []).map((item, i) => (
+                {result.differences.map((item, i) => (
                   <div className="difference-row" key={i}>
                     <div className={`difference-badge ${item.status === "matched" ? "match" : "variance"}`}>
                       {item.status === "matched" ? <Check size={13} /> : <AlertTriangle size={13} />}
@@ -396,15 +364,49 @@ export default function Home() {
                       <p>{item.explanation}</p>
                     </div>
                     <div className="difference-values">
-                      <span>CSV {inr(item.pdfAmount)}</span>
-                      <span>Excel {inr(item.excelAmount)}</span>
-                      <b className={item.variance === 0 ? "zero" : "nonzero"}>
-                        {item.variance > 0 ? "+" : ""}
-                        {inr(item.variance)}
-                      </b>
+                      <span>Vendor {inr(item.vendorAmount)}</span>
+                      <span>Client {inr(item.clientAmount)}</span>
+                      <b className={item.variance === 0 ? "zero" : "nonzero"}>{signed(item.variance)}</b>
                     </div>
                   </div>
                 ))}
+              </div>
+              <div className="exceptions">
+                <div className="subhead">
+                  <span>TICKETS TO REVIEW</span>
+                  <span className="mono">
+                    {result.exceptions.length < result.exceptionTotal
+                      ? `largest ${result.exceptions.length} of ${result.exceptionTotal}`
+                      : `${result.exceptionTotal} total`}
+                  </span>
+                </div>
+                {result.exceptions.length === 0 ? (
+                  <p className="exceptions-empty">Every ticket matches on PNR, amount, commission and edge offer.</p>
+                ) : (
+                  <>
+                    {visibleExceptions.map((item, i) => (
+                      <div className="exception-row" key={`${item.pnr}-${item.issue}-${i}`}>
+                        <div className="exception-main">
+                          <strong>
+                            {item.pnr} <em>{item.category}</em>
+                          </strong>
+                          <p>{item.issue}</p>
+                          <small>{item.detail}</small>
+                        </div>
+                        <div className="difference-values">
+                          <span>Vendor {inr(item.vendorAmount)}</span>
+                          <span>Client {inr(item.clientAmount)}</span>
+                          <b className="nonzero">{signed(item.variance)}</b>
+                        </div>
+                      </div>
+                    ))}
+                    {result.exceptions.length > COLLAPSED_EXCEPTIONS && (
+                      <button className="outline-btn exceptions-toggle" onClick={() => setShowAll((v) => !v)}>
+                        {showAll ? "Show fewer" : `Show all ${result.exceptions.length}`}
+                      </button>
+                    )}
+                  </>
+                )}
               </div>
               <div className="checks">
                 <div className="subhead">

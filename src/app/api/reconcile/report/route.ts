@@ -11,7 +11,7 @@ export async function POST(request: NextRequest) {
   } catch {
     return NextResponse.json({ error: "A reconciliation result is required." }, { status: 400 });
   }
-  if (!result?.pdf || !result?.excel) {
+  if (!result?.settlement || !Array.isArray(result?.differences) || !Array.isArray(result?.bridge)) {
     return NextResponse.json({ error: "A reconciliation result is required." }, { status: 400 });
   }
 

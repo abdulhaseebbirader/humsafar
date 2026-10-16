@@ -4,7 +4,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "HumsafarAI — Settlement reconciliation",
-  description: "Turn a payment-advice PDF and a detailed Excel export into one defensible settlement answer.",
+  description: "Compare your transaction report with the vendor payment advice, ticket by ticket, and get one defensible settlement answer.",
   appleWebApp: {
     capable: true,
     title: "HumsafarAI",
