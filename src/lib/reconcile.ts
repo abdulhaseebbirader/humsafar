@@ -117,11 +117,56 @@ function parseVendor(rows: string[][]) {
     /\bTotal\s+Invoice\b/i.test(rowText(row)),
   );
   if (totalInvoiceIndex < 0) {
+    // RedBus payment advice is a flat TIN/PNR table rather than the
+    // sectioned AbhiBus advice with a Total Invoice row.
+    const adviceHeaderIndex = rows.findIndex(
+      (row) => /^TIN$/i.test(cellAt(row, 0)) && /^PNR$/i.test(cellAt(row, 1)) && row.some((value) => /ticket\s*fare/i.test(value)),
+    );
+    if (adviceHeaderIndex >= 0) {
+      const header = rows[adviceHeaderIndex];
+      const column = (pattern: RegExp) => header.findIndex((value) => pattern.test(value.trim()));
+      const pnrColumn = column(/^PNR$/i);
+      const fareColumn = column(/^Ticket\s*Fare$/i);
+      const commissionColumn = column(/^Total\s*Commission\s*With\s*GST$/i);
+      const netColumn = column(/^NetPayable$/i);
+      const offerColumn = column(/^Others$/i);
+      const flatTickets: VendorTicket[] = [];
+      for (const row of rows.slice(adviceHeaderIndex + 1)) {
+        const ticket = cellAt(row, 0);
+        const pnr = cellAt(row, pnrColumn);
+        if (!ticket || !pnr || !/\d/.test(pnr) || fareColumn < 0) continue;
+        flatTickets.push({
+          ticket,
+          pnr,
+          doj: cellAt(row, column(/^DOE$/i) >= 0 ? column(/^DOE$/i) : column(/^DOM$/i)),
+          seats: cellAt(row, column(/^Seats$/i)),
+          amount: money(cellAt(row, fareColumn)),
+          commission: commissionColumn >= 0 ? money(cellAt(row, commissionColumn)) : 0,
+          edge: offerColumn >= 0 ? money(cellAt(row, offerColumn)) : 0,
+          net: netColumn >= 0 ? money(cellAt(row, netColumn)) : 0,
+        });
+      }
+      if (!flatTickets.length) throw new Error("The RedBus vendor payment advice has no ticket rows.");
+      const total = (pick: (ticket: VendorTicket) => number) => round(flatTickets.reduce((sum, ticket) => sum + pick(ticket), 0));
+      const booked = total((ticket) => ticket.amount);
+      const commission = total((ticket) => ticket.commission);
+      const edge = total((ticket) => ticket.edge);
+      const final = total((ticket) => ticket.net || ticket.amount - ticket.commission - ticket.edge);
+      return {
+        operator: cellAt(rows[0], 0) || "RedBus payment advice",
+        invoiceNo: cellAt(rows[0], 0),
+        paymentDate: "",
+        period: "RedBus payment advice period",
+        summary: { booked, bookedCommission: commission, cancel: 0, serviceCancel: 0, charges: 0, exceptional: 0, edgeGross: edge, edgeCommission: 0, edgePayable: edge, bookingPayable: final, tds: 0, final },
+        amountSettled: final,
+        tickets: { booked: flatTickets, cancel: [], charges: [], exceptional: [], assured: [] },
+      };
+    }
     const looksLikeClient = rows.some((row) => /particulares/i.test(row.join(",")));
     throw new Error(
       looksLikeClient
         ? "The vendor slot holds a client transaction report. Please swap the two files."
-        : "This CSV is not a supported vendor payment advice (no “Total Invoice” row found).",
+        : "This CSV is not a supported vendor payment advice (expected AbhiBus sections or a RedBus TIN / PNR table).",
     );
   }
 
