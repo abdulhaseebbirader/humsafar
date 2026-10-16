@@ -11,6 +11,7 @@ import {
   ShieldCheck,
   UploadCloud,
 } from "lucide-react";
+import * as XLSX from "xlsx";
 import { reconcileCsv, type Reconciliation } from "@/lib/reconcile";
 
 const inr = (v: number) =>
@@ -29,7 +30,7 @@ function FileBox({
 }) {
   const [dragging, setDragging] = useState(false);
   const isVendor = kind === "vendor";
-  const isCsv = (f: File | undefined | null) => !!f && /\.csv$/i.test(f.name);
+  const acceptsFile = (f: File | undefined | null) => !!f && /\.(csv|xls|xlsx)$/i.test(f.name);
   return (
     <label
       className={`file-box ${file ? "is-ready" : ""} ${dragging ? "is-dragging" : ""}`}
@@ -42,22 +43,30 @@ function FileBox({
         e.preventDefault();
         setDragging(false);
         const dropped = e.dataTransfer.files?.[0];
-        if (isCsv(dropped)) onChange(dropped);
+        if (acceptsFile(dropped)) onChange(dropped);
       }}
     >
-      <input type="file" accept=".csv,text/csv" onChange={(e) => onChange(e.target.files?.[0] ?? null)} />
+      <input type="file" accept=".csv,.xls,.xlsx,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(e) => onChange(e.target.files?.[0] ?? null)} />
       <div className="file-icon">
         <FileSpreadsheet size={22} />
       </div>
       <div className="file-copy">
-        <strong>{isVendor ? "Vendor payment advice (CSV)" : "Client transaction report (CSV)"}</strong>
+        <strong>{isVendor ? "Vendor payment advice (CSV)" : "Client transaction report (CSV / XLS)"}</strong>
         <span>
-          {file ? file.name : isVendor ? "Drop the vendor's invoice .csv here" : "Drop your own booking ledger .csv here"}
+          {file ? file.name : isVendor ? "Drop the vendor's invoice .csv here" : "Drop your own booking ledger .csv or .xls here"}
         </span>
       </div>
       <div className="file-action">{file ? <Check size={18} /> : <UploadCloud size={18} />}</div>
     </label>
   );
+}
+
+async function readAsCsv(file: File) {
+  if (/\.csv$/i.test(file.name)) return file.text();
+  const workbook = XLSX.read(await file.arrayBuffer(), { type: "array", cellDates: false });
+  const sheetName = workbook.SheetNames[0];
+  if (!sheetName) throw new Error("The client spreadsheet does not contain a worksheet.");
+  return XLSX.utils.sheet_to_csv(workbook.Sheets[sheetName], { blankrows: true });
 }
 
 function CheckRow({ item }: { item: Reconciliation["checks"][number] }) {
@@ -99,6 +108,7 @@ export default function Home() {
   const [downloaded, setDownloaded] = useState(false);
   const [showAll, setShowAll] = useState(false);
   const [error, setError] = useState("");
+  const [savedReportCount, setSavedReportCount] = useState(0);
   const resultRef = useRef<HTMLDivElement | null>(null);
   const inFlight = useRef(false);
   const canRun = Boolean(vendor && client);
@@ -111,7 +121,7 @@ export default function Home() {
     setResult(null);
     setShowAll(false);
     try {
-      const [vendorText, clientText] = await Promise.all([vendor.text(), client.text()]);
+      const [vendorText, clientText] = await Promise.all([readAsCsv(vendor), readAsCsv(client)]);
       setResult(reconcileCsv(vendorText, clientText, vendor.name, client.name));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Unable to reconcile these files.");
@@ -128,6 +138,31 @@ export default function Home() {
       void reconcile();
     }
   }, [vendor, client, reconcile]);
+
+  useEffect(() => {
+    if (!result) return;
+    const key = "humsafarai:reconciliation-reports";
+    let saved: Array<{ savedAt: string; result: Reconciliation }> = [];
+    try {
+      saved = JSON.parse(window.localStorage.getItem(key) || "[]") as Array<{ savedAt: string; result: Reconciliation }>;
+    } catch {
+      saved = [];
+    }
+    saved.unshift({ savedAt: new Date().toISOString(), result });
+    window.localStorage.setItem(key, JSON.stringify(saved.slice(0, 25)));
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setSavedReportCount(saved.slice(0, 25).length);
+  }, [result]);
+
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(window.localStorage.getItem("humsafarai:reconciliation-reports") || "[]") as unknown[];
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setSavedReportCount(saved.length);
+    } catch {
+      setSavedReportCount(0);
+    }
+  }, []);
 
   useEffect(() => {
     if (result && window.matchMedia("(max-width: 900px)").matches) {
@@ -213,7 +248,7 @@ export default function Home() {
           ))}
         </nav>
         <div className="topnav-badge">
-          <span className="live-dot" /> local · nothing stored
+          <span className="live-dot" /> local · {savedReportCount} report{savedReportCount === 1 ? "" : "s"} saved
         </div>
       </header>
 
@@ -229,7 +264,7 @@ export default function Home() {
             <span className="kicker">01 · Load evidence</span>
             <h2>Bring the two sides together.</h2>
             <p className="lead">
-              Upload the vendor&apos;s payment advice and your own transaction report, both as CSV. HumsafarAI matches
+              Upload the vendor&apos;s payment advice as CSV and your own client transaction report as CSV or XLS. HumsafarAI matches
               every ticket by PNR and builds the bridge from your ledger to the vendor&apos;s settlement.
             </p>
           </div>
@@ -250,7 +285,7 @@ export default function Home() {
                 </>
               )}
             </button>
-            {!canRun && <span className="hint">Upload both CSV files to generate a reconciliation result.</span>}
+            {!canRun && <span className="hint">Upload the vendor CSV and client CSV/XLS file to generate a reconciliation result.</span>}
             {canRun && loading && <span className="hint">Both files received — reconciling automatically.</span>}
           </div>
           <div className="panel-note">
