@@ -14,6 +14,11 @@ export async function POST(request: NextRequest) {
   if (!result?.settlement || !Array.isArray(result?.differences) || !Array.isArray(result?.bridge)) {
     return NextResponse.json({ error: "A reconciliation result is required." }, { status: 400 });
   }
+  // Cap rendered rows so a crafted payload cannot exhaust the report worker.
+  const MAX_REPORT_EXCEPTIONS = 2000;
+  if (Array.isArray(result.exceptions) && result.exceptions.length > MAX_REPORT_EXCEPTIONS) {
+    result.exceptions = result.exceptions.slice(0, MAX_REPORT_EXCEPTIONS);
+  }
 
   try {
     const pdf = await buildReport(result);

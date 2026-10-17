@@ -112,25 +112,26 @@ export default function Home() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [history, setHistory] = useState<Array<{ savedAt: string; result: Reconciliation }>>([]);
   const resultRef = useRef<HTMLDivElement | null>(null);
-  const inFlight = useRef(false);
+  const inFlight = useRef(0);
   const restoringHistory = useRef(false);
   const canRun = Boolean(vendor && client);
 
   const reconcile = useCallback(async () => {
-    if (!vendor || !client || inFlight.current) return;
-    inFlight.current = true;
+    if (!vendor || !client) return;
+    const generation = ++inFlight.current;
     setLoading(true);
     setError("");
     setResult(null);
     setShowAll(false);
     try {
       const [vendorText, clientText] = await Promise.all([readAsCsv(vendor), readAsCsv(client)]);
+      // A newer file selection supersedes this run; only the latest pair wins.
+      if (generation !== inFlight.current) return;
       setResult(reconcileCsv(vendorText, clientText, vendor.name, client.name));
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Unable to reconcile these files.");
+      if (generation === inFlight.current) setError(e instanceof Error ? e.message : "Unable to reconcile these files.");
     } finally {
-      inFlight.current = false;
-      setLoading(false);
+      if (generation === inFlight.current) setLoading(false);
     }
   }, [vendor, client]);
 

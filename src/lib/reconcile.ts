@@ -166,7 +166,9 @@ function parseVendor(rows: string[][]) {
         invoiceNo: cellAt(rows[0], 0),
         paymentDate: "",
         period: "RedBus payment advice period",
-        summary: { booked, bookedCommission: commission, cancel: 0, serviceCancel: 0, charges: 0, exceptional: 0, edgeGross: edge, edgeCommission: 0, edgePayable: edge, bookingPayable: final, tds: 0, final },
+        // bookingPayable must be the pre-offer payable so the "Vendor invoice math"
+        // check (payable − exceptional − edge = final) holds for this layout.
+        summary: { booked, bookedCommission: commission, cancel: 0, serviceCancel: 0, charges: 0, exceptional: 0, edgeGross: edge, edgeCommission: 0, edgePayable: edge, bookingPayable: round(final + edge), tds: 0, final },
         amountSettled: final,
         tickets: { booked: flatTickets, cancel: [], charges: [], exceptional: [], assured: [] },
       };
@@ -321,8 +323,8 @@ function parseClient(rows: string[][]) {
     for (const row of rows.slice(legacyHeaderIndex + 1)) {
       const first = cellAt(row, 0);
       if (/^Total\s*:/i.test(first)) {
-        printedDebit = money(cellAt(row, 7));
-        printedCredit = money(cellAt(row, 8));
+        printedDebit = money(cellAt(row, 11));
+        printedCredit = money(cellAt(row, 12));
         continue;
       }
       if (!/^\d+$/.test(first)) continue;
@@ -342,29 +344,44 @@ function parseClient(rows: string[][]) {
       });
     }
   } else {
-    const header = rows[adviceHeaderIndex];
-    const column = (pattern: RegExp) => header.findIndex((value) => pattern.test(value.trim()));
-    const pnrColumn = column(/^PNR$/i);
-    const dateColumn = column(/^DOM$/i) >= 0 ? column(/^DOM$/i) : column(/^DOE$/i);
-    const routeColumn = column(/^Route$/i);
-    const seatColumn = column(/^Seats$/i);
-    const fareColumn = column(/^Ticket\s*Fare$/i);
-    const commissionColumn = column(/^Total\s*Commission\s*With\s*GST$/i);
-    const netColumn = column(/^NetPayable$/i);
-    const offerColumn = column(/^Others$/i);
-    for (const row of rows.slice(adviceHeaderIndex + 1)) {
-      const pnr = cellAt(row, pnrColumn);
-      if (!pnr || /^total/i.test(pnr) || !/^\d+$/.test(cellAt(row, 1))) continue;
-      const fare = money(cellAt(row, fareColumn));
-      const net = money(cellAt(row, netColumn));
-      const commission = money(cellAt(row, commissionColumn));
+    // TIN/PNR exports can repeat the header for several sections (Payment,
+    // Cancellation, Exceptional Refund, ...). Track each header plus the
+    // section title above it so cancellation rows are typed C, not B.
+    const isHeaderRow = (row: string[]) =>
+      /^(TIN|Ticket\s*(No|Number))$/i.test(cellAt(row, 0)) && /^PNR$/i.test(cellAt(row, 1)) && row.some((value) => /ticket\s*fare/i.test(value));
+    const sectionLabel = (headerIndex: number) => {
+      for (let index = headerIndex - 1; index >= 0; index -= 1) {
+        const first = cellAt(rows[index], 0);
+        if (first && !isHeaderRow(rows[index])) return first;
+      }
+      return "";
+    };
+    let cols = { pnr: -1, date: -1, route: -1, seat: -1, fare: -1, commission: -1, net: -1, offer: -1 };
+    let sectionIsCancel = false;
+    const applyHeader = (header: string[], headerIndex: number) => {
+      const find = (pattern: RegExp) => header.findIndex((value) => pattern.test(value.trim()));
+      const date = find(/^DOM$/i) >= 0 ? find(/^DOM$/i) : find(/^DOE$/i);
+      cols = { pnr: find(/^PNR$/i), date, route: find(/^Route$/i), seat: find(/^Seats$/i), fare: find(/^Ticket\s*Fare$/i), commission: find(/^Total\s*Commission\s*With\s*GST$/i), net: find(/^NetPayable$/i), offer: find(/^Others$/i) };
+      sectionIsCancel = /(cancell|refund)/i.test(sectionLabel(headerIndex));
+    };
+    applyHeader(rows[adviceHeaderIndex], adviceHeaderIndex);
+    for (const [rowIndex, row] of rows.slice(adviceHeaderIndex + 1).entries()) {
+      if (isHeaderRow(row)) {
+        applyHeader(row, adviceHeaderIndex + 1 + rowIndex);
+        continue;
+      }
+      const pnr = cellAt(row, cols.pnr);
+      if (!pnr || /^total/i.test(pnr) || !cellAt(row, 0)) continue;
+      const fare = money(cellAt(row, cols.fare));
+      const net = money(cellAt(row, cols.net));
+      const commission = money(cellAt(row, cols.commission));
       data.push({
-        type: "B",
+        type: sectionIsCancel ? "C" : "B",
         pnr,
-        route: cellAt(row, routeColumn),
-        journey: cellAt(row, dateColumn),
-        seats: Math.max(1, cellAt(row, seatColumn).split(",").filter(Boolean).length),
-        discount: money(cellAt(row, offerColumn)),
+        route: cellAt(row, cols.route),
+        journey: cellAt(row, cols.date),
+        seats: Math.max(1, cellAt(row, cols.seat).split(",").filter(Boolean).length),
+        discount: money(cellAt(row, cols.offer)),
         amount: fare,
         commission,
         debit: net,
