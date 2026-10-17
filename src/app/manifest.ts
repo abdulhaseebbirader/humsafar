@@ -5,7 +5,7 @@ export default function manifest(): MetadataRoute.Manifest {
     name: "HumsafarAI — Settlement Reconciliation",
     short_name: "HumsafarAI",
     description:
-      "Turn a payment-advice PDF and a detailed Excel export into one defensible settlement answer.",
+      "Compare your transaction report with the vendor payment advice, ticket by ticket, and get one defensible settlement answer.",
     start_url: "/",
     scope: "/",
     display: "standalone",

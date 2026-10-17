@@ -7,33 +7,30 @@ import {
   Check,
   Download,
   FileSpreadsheet,
-  FileText,
   RefreshCw,
   ShieldCheck,
   UploadCloud,
 } from "lucide-react";
-import { normalizeExcelInBrowser } from "@/lib/excel";
-import type { Reconciliation } from "@/lib/reconcile";
+import * as XLSX from "xlsx";
+import { reconcileCsv, type Reconciliation } from "@/lib/reconcile";
 
 const inr = (v: number) =>
   `₹${Number(v || 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const signed = (v: number) => `${v > 0 ? "+" : v < 0 ? "−" : ""}${inr(Math.abs(v))}`;
+const COLLAPSED_EXCEPTIONS = 12;
 
 function FileBox({
   kind,
   file,
   onChange,
 }: {
-  kind: "pdf" | "excel";
+  kind: "vendor" | "client";
   file: File | null;
   onChange: (f: File | null) => void;
 }) {
-  const isPdf = kind === "pdf";
   const [dragging, setDragging] = useState(false);
-  const accept = isPdf
-    ? ".pdf,application/pdf"
-    : ".xls,.xlsx,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
-  const matches = (f: File | undefined | null) =>
-    !!f && (isPdf ? /\.pdf$/i.test(f.name) : /\.xlsx?$/i.test(f.name));
+  const isVendor = kind === "vendor";
+  const acceptsFile = (f: File | undefined | null) => !!f && /\.(csv|xls|xlsx)$/i.test(f.name);
   return (
     <label
       className={`file-box ${file ? "is-ready" : ""} ${dragging ? "is-dragging" : ""}`}
@@ -46,18 +43,30 @@ function FileBox({
         e.preventDefault();
         setDragging(false);
         const dropped = e.dataTransfer.files?.[0];
-        if (matches(dropped)) onChange(dropped);
+        if (acceptsFile(dropped)) onChange(dropped);
       }}
     >
-      <input type="file" accept={accept} onChange={(e) => onChange(e.target.files?.[0] ?? null)} />
-      <div className="file-icon">{isPdf ? <FileText size={22} /> : <FileSpreadsheet size={22} />}</div>
+      <input type="file" accept=".csv,.xls,.xlsx,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(e) => onChange(e.target.files?.[0] ?? null)} />
+      <div className="file-icon">
+        <FileSpreadsheet size={22} />
+      </div>
       <div className="file-copy">
-        <strong>{isPdf ? "Payment advice PDF" : "Detailed Excel export"}</strong>
-        <span>{file ? file.name : isPdf ? "Drop the settlement advice here" : "Drop the .xls or .xlsx here"}</span>
+        <strong>{isVendor ? "Vendor payment advice (CSV / XLS)" : "Client transaction report (CSV / XLS)"}</strong>
+        <span>
+          {file ? file.name : isVendor ? "Drop the vendor's payment advice .csv or .xls here" : "Drop your own booking ledger .csv or .xls here"}
+        </span>
       </div>
       <div className="file-action">{file ? <Check size={18} /> : <UploadCloud size={18} />}</div>
     </label>
   );
+}
+
+async function readAsCsv(file: File) {
+  if (/\.csv$/i.test(file.name)) return file.text();
+  const workbook = XLSX.read(await file.arrayBuffer(), { type: "array", cellDates: false });
+  const sheetName = workbook.SheetNames[0];
+  if (!sheetName) throw new Error("The client spreadsheet does not contain a worksheet.");
+  return XLSX.utils.sheet_to_csv(workbook.Sheets[sheetName], { blankrows: true });
 }
 
 function CheckRow({ item }: { item: Reconciliation["checks"][number] }) {
@@ -86,67 +95,100 @@ function ResultSkeleton() {
       <div className="skeleton-bar w-70" />
       <div className="skeleton-bar w-55" />
       <div className="skeleton-bar" />
-      <p className="skeleton-note">Parsing both files and building the settlement bridge…</p>
+      <p className="skeleton-note">Matching both files by PNR and building the settlement bridge…</p>
     </div>
   );
 }
 
 export default function Home() {
-  const [pdf, setPdf] = useState<File | null>(null);
-  const [excel, setExcel] = useState<File | null>(null);
+  const [vendor, setVendor] = useState<File | null>(null);
+  const [client, setClient] = useState<File | null>(null);
   const [result, setResult] = useState<Reconciliation | null>(null);
   const [loading, setLoading] = useState(false);
   const [downloaded, setDownloaded] = useState(false);
+  const [showAll, setShowAll] = useState(false);
   const [error, setError] = useState("");
+  const [savedReportCount, setSavedReportCount] = useState(0);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [history, setHistory] = useState<Array<{ savedAt: string; result: Reconciliation }>>([]);
   const resultRef = useRef<HTMLDivElement | null>(null);
-  const inFlight = useRef(false);
-  const canRun = Boolean(pdf && excel);
+  const inFlight = useRef(0);
+  const restoringHistory = useRef(false);
+  const canRun = Boolean(vendor && client);
 
   const reconcile = useCallback(async () => {
-    if (!pdf || !excel || inFlight.current) return;
-    inFlight.current = true;
+    if (!vendor || !client) return;
+    const generation = ++inFlight.current;
     setLoading(true);
     setError("");
     setResult(null);
+    setShowAll(false);
     try {
-      const excelSummary = await normalizeExcelInBrowser(excel);
-      const body = new FormData();
-      body.append("pdf", pdf);
-      body.append("excelName", excel.name);
-      body.append("excelSummary", JSON.stringify(excelSummary));
-      const response = await fetch("/api/reconcile", { method: "POST", body });
-      const responseText = await response.text();
-      let data: Reconciliation | { error?: string } = {} as Reconciliation;
-      try {
-        data = responseText ? JSON.parse(responseText) : ({} as Reconciliation);
-      } catch {
-        throw new Error(
-          response.ok
-            ? "The reconciliation response was not valid JSON."
-            : `Reconciliation service error (${response.status}). Please try again.`,
-        );
-      }
-      if (!response.ok)
-        throw new Error(
-          (data as { error?: string }).error || `Unable to reconcile these files (HTTP ${response.status}).`,
-        );
-      setResult(data as Reconciliation);
+      const [vendorText, clientText] = await Promise.all([readAsCsv(vendor), readAsCsv(client)]);
+      // A newer file selection supersedes this run; only the latest pair wins.
+      if (generation !== inFlight.current) return;
+      setResult(reconcileCsv(vendorText, clientText, vendor.name, client.name));
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Unable to reconcile these files.");
+      if (generation === inFlight.current) setError(e instanceof Error ? e.message : "Unable to reconcile these files.");
     } finally {
-      inFlight.current = false;
-      setLoading(false);
+      if (generation === inFlight.current) setLoading(false);
     }
-  }, [pdf, excel]);
+  }, [vendor, client]);
 
-  // Auto-run once both files are selected; the async fetch in reconcile legitimately
-  // sets loading/result state from this effect.
+  // Auto-run once both files are selected; reconcile legitimately sets loading/result state.
   useEffect(() => {
-    if (pdf && excel) {
+    if (vendor && client) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       void reconcile();
     }
-  }, [pdf, excel, reconcile]);
+  }, [vendor, client, reconcile]);
+
+  useEffect(() => {
+    if (!result) return;
+    if (restoringHistory.current) {
+      restoringHistory.current = false;
+      return;
+    }
+    const key = "humsafarai:reconciliation-reports";
+    let saved: Array<{ savedAt: string; result: Reconciliation }> = [];
+    try {
+      saved = JSON.parse(window.localStorage.getItem(key) || "[]") as Array<{ savedAt: string; result: Reconciliation }>;
+    } catch {
+      saved = [];
+    }
+    saved.unshift({ savedAt: new Date().toISOString(), result });
+    window.localStorage.setItem(key, JSON.stringify(saved.slice(0, 25)));
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setSavedReportCount(saved.slice(0, 25).length);
+  }, [result]);
+
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(window.localStorage.getItem("humsafarai:reconciliation-reports") || "[]") as Array<{ savedAt: string; result: Reconciliation }>;
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setSavedReportCount(saved.length);
+    } catch {
+      setSavedReportCount(0);
+    }
+  }, []);
+
+  const openHistory = () => {
+    try {
+      const saved = JSON.parse(window.localStorage.getItem("humsafarai:reconciliation-reports") || "[]") as Array<{ savedAt: string; result: Reconciliation }>;
+      setHistory(saved);
+    } catch {
+      setHistory([]);
+    }
+    setHistoryOpen(true);
+  };
+
+  const restoreHistoryItem = (saved: { savedAt: string; result: Reconciliation }) => {
+    restoringHistory.current = true;
+    setResult(saved.result);
+    setError("");
+    setDownloaded(false);
+    setHistoryOpen(false);
+  };
 
   useEffect(() => {
     if (result && window.matchMedia("(max-width: 900px)").matches) {
@@ -154,28 +196,20 @@ export default function Home() {
     }
   }, [result]);
 
-  const choosePdf = (file: File | null) => {
-    setPdf(file);
+  const resetOutput = () => {
     setResult(null);
     setError("");
     setDownloaded(false);
   };
-  const chooseExcel = (file: File | null) => {
-    setExcel(file);
-    setResult(null);
-    setError("");
-    setDownloaded(false);
+  const chooseVendor = (file: File | null) => {
+    setVendor(file);
+    resetOutput();
   };
-  const subscriptionSum = useMemo(
-    () =>
-      result
-        ? [result.pdf.dynamicPricing, result.pdf.srp, result.pdf.sponsored, result.pdf.nova].reduce(
-            (a, b) => a + Number(b || 0),
-            0,
-          )
-        : 0,
-    [result],
-  );
+  const chooseClient = (file: File | null) => {
+    setClient(file);
+    resetOutput();
+  };
+
   const reviewCount = useMemo(
     () =>
       result
@@ -184,6 +218,7 @@ export default function Home() {
         : 0,
     [result],
   );
+  const visibleExceptions = result ? (showAll ? result.exceptions : result.exceptions.slice(0, COLLAPSED_EXCEPTIONS)) : [];
 
   async function downloadReport() {
     if (!result) return;
@@ -201,7 +236,7 @@ export default function Home() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `humsafarAI-${result.source.invoiceNo || "report"}.pdf`;
+      a.download = `humsafarAI-${result.source.invoiceNo.replace(/[^\w-]+/g, "-") || "report"}.pdf`;
       a.click();
       URL.revokeObjectURL(url);
       setDownloaded(true);
@@ -210,7 +245,7 @@ export default function Home() {
     }
   }
 
-  const step1Done = Boolean(pdf && excel);
+  const step1Done = Boolean(vendor && client);
   const step2Done = Boolean(result);
   const steps = [
     { n: "01", label: "Load evidence", state: step1Done ? "done" : "active" },
@@ -238,15 +273,18 @@ export default function Home() {
             </div>
           ))}
         </nav>
+        <button className="history-btn" onClick={openHistory}>
+          History ({savedReportCount})
+        </button>
         <div className="topnav-badge">
-          <span className="live-dot" /> local · nothing stored
+          <span className="live-dot" /> local · {savedReportCount} report{savedReportCount === 1 ? "" : "s"} saved
         </div>
       </header>
 
       <section className="hero">
         <span className="eyebrow">PAYMENT ADVICE / CONTROL ROOM</span>
         <h1>Follow the money.</h1>
-        <p>Turn two messy files into one defensible answer.</p>
+        <p>Your ledger against the vendor&apos;s invoice, ticket by ticket.</p>
       </section>
 
       <section className="workspace">
@@ -255,13 +293,13 @@ export default function Home() {
             <span className="kicker">01 · Load evidence</span>
             <h2>Bring the two sides together.</h2>
             <p className="lead">
-              Upload the payment advice and its detailed export. HumsafarAI reads both, separates embedded
-              cancellations, and builds the settlement bridge.
+              Upload the vendor&apos;s payment advice as CSV or XLS and your own client transaction report as CSV or XLS. HumsafarAI matches
+              every ticket by PNR and builds the bridge from your ledger to the vendor&apos;s settlement.
             </p>
           </div>
           <div className="file-stack">
-            <FileBox kind="pdf" file={pdf} onChange={choosePdf} />
-            <FileBox kind="excel" file={excel} onChange={chooseExcel} />
+            <FileBox kind="vendor" file={vendor} onChange={chooseVendor} />
+            <FileBox kind="client" file={client} onChange={chooseClient} />
           </div>
           {error && <div className="error-box">{error}</div>}
           <div className="upload-actions">
@@ -276,13 +314,13 @@ export default function Home() {
                 </>
               )}
             </button>
-            {!canRun && <span className="hint">Upload both files to generate a reconciliation result.</span>}
+            {!canRun && <span className="hint">Upload the vendor CSV and client CSV/XLS file to generate a reconciliation result.</span>}
             {canRun && loading && <span className="hint">Both files received — reconciling automatically.</span>}
           </div>
           <div className="panel-note">
             <ShieldCheck size={15} />
             <p>
-              <strong>Evidence first.</strong> Every total is tied back to a source file or formula.
+              <strong>Evidence first.</strong> Files are read in your browser; every total is tied back to a source row.
             </p>
           </div>
         </div>
@@ -318,10 +356,11 @@ export default function Home() {
               </div>
               <div className="hero-total">
                 <div>
-                  <span className="label">FINAL SETTLEMENT</span>
-                  <div className="amount">{inr(result.pdf.finalSettlement)}</div>
+                  <span className="label">VENDOR SETTLES</span>
+                  <div className="amount">{inr(result.settlement.vendorFinal)}</div>
                   <p>
-                    after adjustment <b>{inr(result.pdf.adjustment)}</b>
+                    client ledger expects <b>{inr(result.settlement.clientNet)}</b> · gap{" "}
+                    <b>{signed(result.settlement.gap)}</b>
                   </p>
                 </div>
                 <div className={`verified ${reviewCount ? "needs-review" : ""}`}>
@@ -339,54 +378,47 @@ export default function Home() {
               <div className="bridge">
                 <div className="bridge-title">
                   <span>SETTLEMENT BRIDGE</span>
-                  <span className="mono">invoice → final</span>
+                  <span className="mono">client ledger → vendor final</span>
                 </div>
                 {result.bridge.map((item, i) => (
                   <div className={`bridge-row ${item.kind}`} key={i}>
                     <span>{item.label}</span>
                     <strong>
-                      {item.amount < 0 ? "−" : ""}
-                      {inr(Math.abs(item.amount))}
+                      {item.kind === "base" || item.kind === "final" ? inr(item.amount) : signed(item.amount)}
                     </strong>
                   </div>
                 ))}
               </div>
               <div className="summary-grid">
                 <div className="metric-card">
-                  <span className="label">EXCEL BOOKING ROWS</span>
-                  <strong>{Number(result.excel.bookingRows).toLocaleString("en-IN")}</strong>
-                  <small>raw booking detail</small>
+                  <span className="label">BOOKINGS MATCHED</span>
+                  <strong>
+                    {result.coverage.matchedBookings.toLocaleString("en-IN")} /{" "}
+                    {result.coverage.vendorBookings.toLocaleString("en-IN")}
+                  </strong>
+                  <small>
+                    {result.coverage.vendorOnlyBookings} vendor-only · {result.coverage.clientOnlyBookings} client-only
+                  </small>
                 </div>
                 <div className="metric-card">
-                  <span className="label">CANCELLATION OVERLAP</span>
-                  <strong>{inr(result.excel.embeddedCancellationFare)}</strong>
-                  <small>excluded from active total</small>
+                  <span className="label">CANCELLATIONS MATCHED</span>
+                  <strong>
+                    {result.coverage.matchedCancellations} / {result.coverage.vendorCancellations}
+                  </strong>
+                  <small>{result.coverage.clientCancellations} in client ledger</small>
                 </div>
                 <div className="metric-card">
-                  <span className="label">SUBSCRIPTION MATCH</span>
-                  <strong>{inr(subscriptionSum)}</strong>
-                  <small>4 PDF deductions matched</small>
+                  <span className="label">TICKETS TO REVIEW</span>
+                  <strong>{result.exceptionTotal.toLocaleString("en-IN")}</strong>
+                  <small>per-PNR differences</small>
                 </div>
-              </div>
-              <div className="match-strip">
-                <div className="subhead">
-                  <span>SUBSCRIPTION DETAIL MATCH</span>
-                  <span className="mono">PDF ↔ Excel</span>
-                </div>
-                {(result.excel.subscriptionItems || []).map((item, i) => (
-                  <div className="match-row" key={i}>
-                    <span>{item.label}</span>
-                    <strong>{inr(item.amount)}</strong>
-                    <em className={item.matched ? "matched" : "unmatched"}>{item.matched || "Review"}</em>
-                  </div>
-                ))}
               </div>
               <div className="differences">
                 <div className="subhead">
                   <span>WHERE DIFFERENCES OCCUR</span>
-                  <span className="mono">PDF ↔ Excel</span>
+                  <span className="mono">vendor ↔ client</span>
                 </div>
-                {(result.differences || []).map((item, i) => (
+                {result.differences.map((item, i) => (
                   <div className="difference-row" key={i}>
                     <div className={`difference-badge ${item.status === "matched" ? "match" : "variance"}`}>
                       {item.status === "matched" ? <Check size={13} /> : <AlertTriangle size={13} />}
@@ -396,15 +428,47 @@ export default function Home() {
                       <p>{item.explanation}</p>
                     </div>
                     <div className="difference-values">
-                      <span>PDF {inr(item.pdfAmount)}</span>
-                      <span>Excel {inr(item.excelAmount)}</span>
-                      <b className={item.variance === 0 ? "zero" : "nonzero"}>
-                        {item.variance > 0 ? "+" : ""}
-                        {inr(item.variance)}
-                      </b>
+                      <span>Vendor {inr(item.vendorAmount)}</span>
+                      <span>Client {inr(item.clientAmount)}</span>
+                      <b className={item.variance === 0 ? "zero" : "nonzero"}>{signed(item.variance)}</b>
                     </div>
                   </div>
                 ))}
+              </div>
+              <div className="exceptions">
+                <div className="subhead">
+                  <span>TICKETS TO REVIEW</span>
+                  <span className="mono">
+                    {result.exceptionTotal.toLocaleString("en-IN")} total PNR findings
+                  </span>
+                </div>
+                {result.exceptions.length === 0 ? (
+                  <p className="exceptions-empty">Every ticket matches on PNR, amount, commission and edge offer.</p>
+                ) : (
+                  <>
+                    {visibleExceptions.map((item, i) => (
+                      <div className="exception-row" key={`${item.pnr}-${item.issue}-${i}`}>
+                        <div className="exception-main">
+                          <strong>
+                            {item.pnr} <em>{item.category}</em>
+                          </strong>
+                          <p>{item.issue}</p>
+                          <small>{item.detail}</small>
+                        </div>
+                        <div className="difference-values">
+                          <span>Vendor {inr(item.vendorAmount)}</span>
+                          <span>Client {inr(item.clientAmount)}</span>
+                          <b className="nonzero">{signed(item.variance)}</b>
+                        </div>
+                      </div>
+                    ))}
+                    {result.exceptions.length > COLLAPSED_EXCEPTIONS && (
+                      <button className="outline-btn exceptions-toggle" onClick={() => setShowAll((v) => !v)}>
+                        {showAll ? "Show fewer" : `Show all ${result.exceptions.length}`}
+                      </button>
+                    )}
+                  </>
+                )}
               </div>
               <div className="checks">
                 <div className="subhead">
@@ -427,6 +491,37 @@ export default function Home() {
           )}
         </div>
       </section>
+
+      {historyOpen && (
+        <section className="history-panel" aria-label="Reconciliation history">
+          <div className="history-head">
+            <div>
+              <span className="kicker">Saved locally</span>
+              <h2>Reconciliation history</h2>
+              <p>Previous reports are stored only in this browser and can be reopened without uploading the source files again.</p>
+            </div>
+            <button className="outline-btn" onClick={() => setHistoryOpen(false)}>Close</button>
+          </div>
+          {history.length === 0 ? (
+            <p className="history-empty">No reconciliation reports have been saved yet.</p>
+          ) : (
+            <div className="history-list">
+              {history.map((saved, index) => (
+                <button className="history-row" key={`${saved.savedAt}-${index}`} onClick={() => restoreHistoryItem(saved)}>
+                  <span>
+                    <strong>{saved.result.source.invoiceNo || "Reconciliation report"}</strong>
+                    <small>{saved.result.source.operator} · {saved.result.source.period}</small>
+                  </span>
+                  <span className="history-meta">
+                    <b>{saved.result.coverage.matchedBookings.toLocaleString("en-IN")} matched</b>
+                    <small>{new Date(saved.savedAt).toLocaleString()}</small>
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
 
       <div className="mobile-bar">
         <button onClick={reconcile} disabled={!canRun || loading} className="run-btn">
