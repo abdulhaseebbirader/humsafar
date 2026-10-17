@@ -14,11 +14,19 @@ export async function POST(request: NextRequest) {
   if (!result?.settlement || !Array.isArray(result?.differences) || !Array.isArray(result?.bridge)) {
     return NextResponse.json({ error: "A reconciliation result is required." }, { status: 400 });
   }
-  // Cap rendered rows so a crafted payload cannot exhaust the report worker.
+  // Cap rendered rows so a crafted payload cannot exhaust the report worker,
+  // and record the truncation so the PDF never silently drops findings.
   const MAX_REPORT_EXCEPTIONS = 2000;
   if (Array.isArray(result.exceptions) && result.exceptions.length > MAX_REPORT_EXCEPTIONS) {
+    const dropped = result.exceptions.length - MAX_REPORT_EXCEPTIONS;
     result.exceptions = result.exceptions.slice(0, MAX_REPORT_EXCEPTIONS);
+    result.exceptions.push({ pnr: "—", category: "Note", issue: `${dropped} further findings truncated from this report`, vendorAmount: 0, clientAmount: 0, variance: 0, detail: "Reduce exceptions below the report cap to see every finding." });
+    result.exceptionTotal = result.exceptions.length;
   }
+  const MAX_REPORT_ROWS = 500;
+  if (Array.isArray(result.differences) && result.differences.length > MAX_REPORT_ROWS) result.differences = result.differences.slice(0, MAX_REPORT_ROWS);
+  if (Array.isArray(result.checks) && result.checks.length > MAX_REPORT_ROWS) result.checks = result.checks.slice(0, MAX_REPORT_ROWS);
+  if (Array.isArray(result.bridge) && result.bridge.length > MAX_REPORT_ROWS) result.bridge = result.bridge.slice(0, MAX_REPORT_ROWS);
 
   try {
     const pdf = await buildReport(result);

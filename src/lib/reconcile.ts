@@ -166,9 +166,9 @@ function parseVendor(rows: string[][]) {
         invoiceNo: cellAt(rows[0], 0),
         paymentDate: "",
         period: "RedBus payment advice period",
-        // bookingPayable must be the pre-offer payable so the "Vendor invoice math"
-        // check (payable − exceptional − edge = final) holds for this layout.
-        summary: { booked, bookedCommission: commission, cancel: 0, serviceCancel: 0, charges: 0, exceptional: 0, edgeGross: edge, edgeCommission: 0, edgePayable: edge, bookingPayable: round(final + edge), tds: 0, final },
+        // bookingPayable comes from the fare/commission columns, not the net
+        // column, so the "Vendor invoice math" check still catches a wrong NetPayable.
+        summary: { booked, bookedCommission: commission, cancel: 0, serviceCancel: 0, charges: 0, exceptional: 0, edgeGross: edge, edgeCommission: 0, edgePayable: edge, bookingPayable: round(booked - commission), tds: 0, final },
         amountSettled: final,
         tickets: { booked: flatTickets, cancel: [], charges: [], exceptional: [], assured: [] },
       };
@@ -384,8 +384,10 @@ function parseClient(rows: string[][]) {
         discount: money(cellAt(row, cols.offer)),
         amount: fare,
         commission,
+        // For cancellation sections the NetPayable is the charge the client
+        // keeps (debit); the refunded remainder of the fare is the credit.
         debit: net,
-        credit: 0,
+        credit: sectionIsCancel ? round(Math.max(0, fare - net)) : 0,
       });
     }
   }
