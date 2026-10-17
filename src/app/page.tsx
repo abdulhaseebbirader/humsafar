@@ -438,9 +438,7 @@ export default function Home() {
                 <div className="subhead">
                   <span>TICKETS TO REVIEW</span>
                   <span className="mono">
-                    {result.exceptions.length < result.exceptionTotal
-                      ? `largest ${result.exceptions.length} of ${result.exceptionTotal}`
-                      : `${result.exceptionTotal} total`}
+                    {result.exceptionTotal.toLocaleString("en-IN")} total PNR findings
                   </span>
                 </div>
                 {result.exceptions.length === 0 ? (
@@ -499,7 +497,7 @@ export default function Home() {
             <div>
               <span className="kicker">Saved locally</span>
               <h2>Reconciliation history</h2>
-              <p>Previous reports are stored only in this browser.</p>
+              <p>Previous reports are stored only in this browser and can be reopened without uploading the source files again.</p>
             </div>
             <button className="outline-btn" onClick={() => setHistoryOpen(false)}>Close</button>
           </div>

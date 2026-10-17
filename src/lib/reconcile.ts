@@ -44,7 +44,8 @@ export type Reconciliation = {
   exceptionTotal: number;
 };
 
-const MAX_EXCEPTIONS = 500;
+// Keep every exception so the on-screen audit trail and downloaded PDF are complete.
+const MAX_EXCEPTIONS = Number.POSITIVE_INFINITY;
 const round = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
 const close = (a: number, b: number, tolerance = 1) => Math.abs(a - b) <= tolerance;
 const fmt = (value: number) =>
@@ -122,18 +123,18 @@ function parseVendor(rows: string[][]) {
     const adviceHeaderIndex = rows.findIndex((row) => {
       const normalized = row.map((value) => value.trim());
       const hasPnr = normalized.some((value) => /^PNR$/i.test(value));
-      const hasFare = normalized.some((value) => /^(Ticket\s*Fare|Gross\s*(Amount|Fare)|Amount)$/i.test(value));
-      const hasNet = normalized.some((value) => /^(Net\s*Payable|NetPayable|Net\s*Amount|Settlement\s*Amount)$/i.test(value));
+      const hasFare = normalized.some((value) => /^(Ticket\s*Fare|Gross\s*(Amount|Fare)|Total\s*Fare|Amount)$/i.test(value));
+      const hasNet = normalized.some((value) => /^(Net\s*Payable|NetPayable|Net\s*Amount|Settlement\s*Amount|Payable)$/i.test(value));
       return hasPnr && (hasFare || hasNet);
     });
     if (adviceHeaderIndex >= 0) {
       const header = rows[adviceHeaderIndex];
       const column = (pattern: RegExp) => header.findIndex((value) => pattern.test(value.trim()));
       const pnrColumn = column(/^PNR$/i);
-      const fareColumn = column(/^(Ticket\s*Fare|Gross\s*(Amount|Fare)|Amount)$/i);
-      const resolvedFareColumn = fareColumn >= 0 ? fareColumn : column(/^(Net\s*Payable|NetPayable|Net\s*Amount|Settlement\s*Amount)$/i);
-      const commissionColumn = column(/^Total\s*Commission\s*With\s*GST$/i);
-      const netColumn = column(/^NetPayable$/i);
+      const fareColumn = column(/^(Ticket\s*Fare|Gross\s*(Amount|Fare)|Total\s*Fare|Amount)$/i);
+      const resolvedFareColumn = fareColumn >= 0 ? fareColumn : column(/^(Net\s*Payable|NetPayable|Net\s*Amount|Settlement\s*Amount|Payable)$/i);
+      const commissionColumn = column(/^(Total\s*)?Commission(\s*With\s*GST)?$/i);
+      const netColumn = column(/^(Net\s*Payable|NetPayable|Net\s*Amount|Settlement\s*Amount|Payable)$/i);
       const offerColumn = column(/^Others$/i);
       const flatTickets: VendorTicket[] = [];
       for (const row of rows.slice(adviceHeaderIndex + 1)) {

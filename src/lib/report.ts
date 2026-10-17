@@ -92,9 +92,7 @@ function renderReport(doc: PDFKit.PDFDocument, result: Reconciliation) {
     doc.fillColor(muted).font(regular).fontSize(7.6).text(`Vendor ${inr(item.vendorAmount)}  ·  Client ${inr(item.clientAmount)}  ·  ${item.detail}`, 58, doc.y + 1, { width: 477 });
     doc.moveDown(0.35); rule(); doc.moveDown(0.35);
   });
-  if (result.exceptionTotal > shown.length) {
-    doc.fillColor(muted).font(regular).fontSize(8.5).text(`Showing the largest ${shown.length} of ${result.exceptionTotal} tickets; the full list is available in the app.`);
-  }
+  doc.fillColor(muted).font(regular).fontSize(8.5).text(`${result.exceptionTotal.toLocaleString("en-IN")} PNR-level findings are included above. Each finding was compared against the matching vendor and client rows.`);
 
   section("05", "Control checks");
   result.checks.forEach(check => { if (doc.y > 720) newPage(); const color = check.status === "matched" ? teal : check.status === "info" ? amber : red; doc.fillColor(color).font(bold).fontSize(9.5).text(`${check.status.toUpperCase()}  ·  ${check.label}`); doc.fillColor(muted).font(regular).fontSize(8.5).text(check.detail, { width: 470 }); doc.moveDown(0.6); });
