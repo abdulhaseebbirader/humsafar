@@ -444,7 +444,7 @@ export default function Home() {
     // Their FINAL tab: one weekly settlement row per advice/ITS pair.
     const w = result.weekly;
     const vname = result.source.vendor;
-    const periodParts = result.source.period.split(/\u2192|\u2013|\u2014|-/).map((s) => s.trim());
+    const periodParts = result.source.period.split(/\s*(?:\u2192|\u2013|\u2014|\bto\b)\s*/i).map((s) => s.trim());
     const weekly: (string | number)[][] = [
       ["INV NO", "SETTAL DATE", "FROM", "TO", `${vname} BOOKING`, "ITS BOOKING", `${vname} COMM`, "ITS COMM", `${vname} Cancellation`, "Bus Cancelled", "Exceptional Refund", "ITS Cancellation", "ITS Cancellation Charges", `${vname} Cancellation Charges`, "Operator Offer", "GDS Commission", "SS partner comm w/ GST", "Reschedule", "SRP", "Sponsored Listing", "Dynamic charg", "TDS", "YourBus Charge", "SeatSeller Adjustments", "Recon Adjustments", "TOTAL", "Payment Received", "DIFF", "AS PER ITS", "PAYMNET DIFF"],
       [result.source.invoiceNo, result.source.paymentDate, periodParts[0] ?? "", periodParts[periodParts.length - 1] ?? "", w.vendorBooking, w.itsBooking, w.vendorComm, w.itsComm, w.vendorCancel, w.busCancelled, w.exceptional, w.itsCancel, w.itsCharges, w.vendorCharges, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, w.total, w.received, w.diff, w.asPerIts, w.paymentDiff],
