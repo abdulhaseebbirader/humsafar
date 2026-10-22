@@ -86,6 +86,10 @@ export type Reconciliation = {
     cancelType: string;
     rescheduled: boolean;
     channel: string;
+    // Journey date falls in a week before this settlement week — a PNR the
+    // vendor carried over and only settled now.
+    carried: boolean;
+    carriedWeek: string;
     ticket: string;
     route: string;
     doj: string;
@@ -879,6 +883,12 @@ export function reconcileCsv(vendorText: string, clientText: string, vendorName:
   const vendorTicketFor = (key: string, pnr: string) =>
     (key === "booked" ? vBooked.get(pnr) : key === "cancel" ? vCancel.get(pnr) : key === "busCancelled" ? vBusCancelled.get(pnr) : key === "exceptional" ? vExceptional.get(pnr) : vAssured.get(pnr))?.[0];
   const audit: Reconciliation["audit"] = [];
+  // Settlement week = the advice/ITS period start. PNRs whose journey date
+  // sits in an earlier week are arrears the vendor carried into this run.
+  const datedPeriod = /\d{2}-\d{2}-\d{4}/.test(vendor.period) ? vendor.period : client.clientPeriod;
+  const periodStart = parseDoj(datedPeriod);
+  const weekStart = (d: Date) => { const s = new Date(d); s.setDate(s.getDate() - ((s.getDay() + 6) % 7)); s.setHours(0, 0, 0, 0); return s; };
+  const settleWeekStart = periodStart ? weekStart(periodStart).getTime() : null;
   const auditPnrs = new Set<string>([...vBooked.keys(), ...vCancel.keys(), ...vBusCancelled.keys(), ...vExceptional.keys(), ...vAssured.keys(), ...cBooked.keys(), ...cCancel.keys()]);
   for (const pnr of auditPnrs) {
     const cB = cBooked.get(pnr);
@@ -932,6 +942,8 @@ export function reconcileCsv(vendorText: string, clientText: string, vendorName:
       cancelType,
       rescheduled: Boolean(ref?.rescheduled) || /reschedul/i.test(ref?.note ?? ""),
       channel: ref?.channel ?? "",
+      carried: (() => { const d = parseDoj(ref?.doj ?? cRef?.journey ?? ""); return Boolean(d && settleWeekStart !== null && weekStart(d).getTime() < settleWeekStart); })(),
+      carriedWeek: (() => { const d = parseDoj(ref?.doj ?? cRef?.journey ?? ""); return d ? weekLabel(d) : ""; })(),
       ticket: ref?.ticket ?? "",
       route: cRef?.route ?? ref?.route ?? "",
       doj: ref?.doj ?? cRef?.journey ?? "",

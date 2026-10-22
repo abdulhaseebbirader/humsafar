@@ -1332,3 +1332,7 @@ footer {
   text-transform: uppercase;
   margin-right: 5px;
 }
+.repeat-badge.carried {
+  background: #fef3c7;
+  color: #92400e;
+}

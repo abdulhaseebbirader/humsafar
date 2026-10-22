@@ -428,9 +428,10 @@ export default function Home() {
       ["Check", "Status", "Variance", "Detail"],
       ...result.checks.map((c) => [c.label, c.status, c.variance ?? "", c.detail] as (string | number)[]),
     ] as string[][];
+    const carriedByPnr = new Map(result.audit.map((a) => [a.pnr, a.carried ? a.carriedWeek : ""]));
     const exceptions: string[][] = [
-      ["PNR", "Category", "Issue", "Vendor", "Client", "Variance", "Detail", "Follow-up"],
-      ...result.exceptions.map((e) => [e.pnr, e.category, e.issue, e.vendorAmount, e.clientAmount, e.variance, e.detail, askVendor(e)] as (string | number)[]),
+      ["PNR", "Category", "Issue", "Vendor", "Client", "Variance", "Prior week", "Detail", "Follow-up"],
+      ...result.exceptions.map((e) => [e.pnr, e.category, e.issue, e.vendorAmount, e.clientAmount, e.variance, carriedByPnr.get(e.pnr) ?? "", e.detail, askVendor(e)] as (string | number)[]),
     ] as string[][];
     // Their FINAL tab: one weekly settlement row per advice/ITS pair.
     const w = result.weekly;
@@ -446,11 +447,11 @@ export default function Home() {
     const audit: (string | number)[][] = [
       ["PNR", "Ticket", "Route", "DOJ", "Settle date", "Client row", "Vendor section", "Cancel type", "Rescheduled", "Channel",
         "Vendor fare", "ITS fare", "Fare diff", "Vendor comm", "ITS comm", "Comm diff", "Vendor offer", "ITS offer", "Offer diff",
-        "Vendor cancel charges", "ITS cancel charges", "Charge diff", "Vendor net", "ITS net", "Variance", "Vendor note", "Status"],
+        "Vendor cancel charges", "ITS cancel charges", "Charge diff", "Vendor net", "ITS net", "Variance", "Prior week", "Vendor note", "Status"],
       ...result.audit.map((a) => [
         a.pnr, a.ticket, a.route, a.doj, a.settleDate, a.clientType, a.vendorSection, a.cancelType, a.rescheduled ? "Yes" : "", a.channel,
         a.vendorFare, a.clientFare, a.fareDiff, a.vendorComm, a.clientComm, a.commDiff, a.vendorOffer, a.clientOffer, a.offerDiff,
-        a.vendorCharge, a.clientCharge, a.chargeDiff, a.vendorAmount, a.clientAmount, a.variance, a.note, a.status,
+        a.vendorCharge, a.clientCharge, a.chargeDiff, a.vendorAmount, a.clientAmount, a.variance, a.carried ? a.carriedWeek : "", a.note, a.status,
       ] as (string | number)[]),
     ];
     const periods: (string | number)[][] = [
@@ -854,7 +855,7 @@ export default function Home() {
                         .slice(0, 200)
                         .map((a, i) => (
                           <div className={`audit-row ${a.status}`} key={`${a.pnr}-${i}`}>
-                            <span>{a.pnr}{repeatPnrs.has(a.pnr) && <em className="repeat-badge">repeat</em>}</span>
+                            <span>{a.pnr}{repeatPnrs.has(a.pnr) && <em className="repeat-badge">repeat</em>}{a.carried && <em className="repeat-badge carried">prev week</em>}</span>
                             <span>{a.clientType}</span>
                             <span>{a.vendorSection}</span>
                             <span>{a.cancelType}{a.rescheduled ? " · resched" : ""}</span>
