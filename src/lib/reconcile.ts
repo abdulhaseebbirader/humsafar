@@ -69,6 +69,23 @@ export type Reconciliation = {
     clientAmount: number;
     vendorAmount: number;
     variance: number;
+    // Per-PNR clarification detail: fare / commission / offer / charge
+    // compared side by side so every difference is explained on the row.
+    vendorFare: number;
+    clientFare: number;
+    fareDiff: number;
+    vendorComm: number;
+    clientComm: number;
+    commDiff: number;
+    vendorOffer: number;
+    clientOffer: number;
+    offerDiff: number;
+    vendorCharge: number;
+    clientCharge: number;
+    chargeDiff: number;
+    cancelType: string;
+    rescheduled: boolean;
+    channel: string;
     ticket: string;
     route: string;
     doj: string;
@@ -173,6 +190,9 @@ type VendorTicket = {
   charge?: number;
   note?: string;
   route?: string;
+  ticketType?: string;
+  channel?: string;
+  rescheduled?: boolean;
 };
 
 function parseVendor(rows: string[][]) {
@@ -301,6 +321,9 @@ function parseVendor(rows: string[][]) {
                 ? money(cellAt(row, cols.cancelCharges))
                 : Math.max(0, round(reversal - netReversed))
               : 0,
+          ticketType: section === "busCancelled" && cols.ticketType >= 0 ? cellAt(row, cols.ticketType) : undefined,
+          channel: cols.channel >= 0 ? cellAt(row, cols.channel) : undefined,
+          rescheduled: cols.resched >= 0 && /^true$/i.test(cellAt(row, cols.resched)) ? true : undefined,
         };
         redTickets[section].push(ticket);
       }
@@ -866,6 +889,27 @@ export function reconcileCsv(vendorText: string, clientText: string, vendorName:
     const vendorAmount = vKey ? round(vendorAmountFor(vKey, pnr)) : 0;
     const ref = vKey ? vendorTicketFor(vKey, pnr) : undefined;
     const cRef = cB?.[0] ?? cC?.[0];
+    // Clarification fields: what each side booked, charged and deducted for
+    // this PNR, so every column of their manual check is answered on one row.
+    const vB = vBooked.get(pnr) ?? [];
+    const vC = vCancel.get(pnr) ?? [];
+    const vendorFare = round(sum(vB, (t) => t.amount) + sum(vC, (t) => t.amount) + sum(vBusCancelled.get(pnr) ?? [], (t) => t.amount));
+    const clientFare = round((cB ? sum(cB, (r) => r.amount) : 0) + (cC ? Math.abs(sum(cC, (r) => r.amount)) : 0));
+    const vendorComm = round(sum(vB, (t) => t.commission));
+    const clientComm = round(cB ? sum(cB, (r) => r.commission) : 0);
+    const vendorOffer = round(sum(vB, (t) => t.edge));
+    const clientOffer = round(cB ? sum(cB, (r) => r.discount) : 0);
+    const vendorCharge = round(sum(vCharges.get(pnr) ?? [], (t) => t.amount) + sum(vC, (t) => t.charge ?? 0));
+    const clientCharge = round(cC ? sum(cC, (r) => r.debit) : 0);
+    const cancelType = vBusCancelled.has(pnr)
+      ? "Bus cancelled"
+      : vExceptional.has(pnr) || vAssured.has(pnr)
+        ? "Exceptional refund"
+        : vCancel.has(pnr)
+          ? vC[0]?.note?.match(/reschedul|normal|partial|full/i)?.[0] ?? "Normal cancellation"
+          : cC
+            ? "Client cancellation only"
+            : "—";
     audit.push({
       pnr,
       clientType,
@@ -873,6 +917,21 @@ export function reconcileCsv(vendorText: string, clientText: string, vendorName:
       clientAmount,
       vendorAmount,
       variance: round(clientAmount - vendorAmount),
+      vendorFare,
+      clientFare,
+      fareDiff: round(clientFare - vendorFare),
+      vendorComm,
+      clientComm,
+      commDiff: round(clientComm - vendorComm),
+      vendorOffer,
+      clientOffer,
+      offerDiff: round(clientOffer - vendorOffer),
+      vendorCharge,
+      clientCharge,
+      chargeDiff: round(clientCharge - vendorCharge),
+      cancelType,
+      rescheduled: Boolean(ref?.rescheduled) || /reschedul/i.test(ref?.note ?? ""),
+      channel: ref?.channel ?? "",
       ticket: ref?.ticket ?? "",
       route: cRef?.route ?? ref?.route ?? "",
       doj: ref?.doj ?? cRef?.journey ?? "",

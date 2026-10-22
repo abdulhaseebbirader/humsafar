@@ -1250,7 +1250,7 @@ footer {
 .audit-head,
 .audit-row {
   display: grid;
-  grid-template-columns: minmax(96px, 1fr) minmax(44px, 0.5fr) minmax(96px, 1fr) minmax(88px, 1fr) minmax(88px, 1fr) minmax(84px, 0.9fr) minmax(120px, 1.6fr);
+  grid-template-columns: minmax(96px, 1fr) minmax(40px, 0.4fr) minmax(90px, 0.9fr) minmax(96px, 0.9fr) minmax(76px, 0.8fr) minmax(76px, 0.8fr) minmax(76px, 0.8fr) minmax(80px, 0.8fr) minmax(84px, 0.9fr) minmax(140px, 1.7fr);
   gap: 12px;
   padding: 9px 16px;
   align-items: center;

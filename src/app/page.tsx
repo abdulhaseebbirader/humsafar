@@ -393,15 +393,6 @@ export default function Home() {
 
   const fileStem = () => `humsafarAI-${result?.source.invoiceNo.replace(/[^\w-]+/g, "-") || "report"}`;
 
-  const saveBlob = (blob: Blob, name: string) => {
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = name;
-    a.click();
-    URL.revokeObjectURL(url);
-    setDownloaded(true);
-  };
 
   function exportSheetRows() {
     if (!result) return { summary: [] as string[][], weekly: [] as string[][], differences: [] as string[][], checks: [] as string[][], exceptions: [] as string[][], audit: [] as string[][], periods: [] as string[][] };
@@ -453,24 +444,20 @@ export default function Home() {
       ["Note", "Adjustment columns (Operator Offer, GDS, SS comm, Reschedule, SRP, Sponsored, Dynamic, TDS, YourBus, SeatSeller/Recon adjustments) are hand-keyed on the manual sheet and have no source columns in the advice — they are 0 here; fill them from the RedBus partner portal if needed."],
     ];
     const audit: (string | number)[][] = [
-      ["PNR", "Client row", "Vendor section", "Vendor", "Client", "Variance", "Ticket", "Route", "DOJ", "Settle date", "Vendor note", "Status"],
-      ...result.audit.map((a) => [a.pnr, a.clientType, a.vendorSection, a.vendorAmount, a.clientAmount, a.variance, a.ticket, a.route, a.doj, a.settleDate, a.note, a.status] as (string | number)[]),
+      ["PNR", "Ticket", "Route", "DOJ", "Settle date", "Client row", "Vendor section", "Cancel type", "Rescheduled", "Channel",
+        "Vendor fare", "ITS fare", "Fare diff", "Vendor comm", "ITS comm", "Comm diff", "Vendor offer", "ITS offer", "Offer diff",
+        "Vendor cancel charges", "ITS cancel charges", "Charge diff", "Vendor net", "ITS net", "Variance", "Vendor note", "Status"],
+      ...result.audit.map((a) => [
+        a.pnr, a.ticket, a.route, a.doj, a.settleDate, a.clientType, a.vendorSection, a.cancelType, a.rescheduled ? "Yes" : "", a.channel,
+        a.vendorFare, a.clientFare, a.fareDiff, a.vendorComm, a.clientComm, a.commDiff, a.vendorOffer, a.clientOffer, a.offerDiff,
+        a.vendorCharge, a.clientCharge, a.chargeDiff, a.vendorAmount, a.clientAmount, a.variance, a.note, a.status,
+      ] as (string | number)[]),
     ];
     const periods: (string | number)[][] = [
       ["Period", "Booked", "Cancelled", "Service cancel", "Charges", "Exceptional", "Edge", "Receivable", "Tickets"],
       ...result.periods.map((p) => [p.label, p.booked, p.cancel, p.serviceCancel, p.charges, p.exceptional, p.edge, p.receivable, p.tickets] as (string | number)[]),
     ];
     return { summary, weekly, differences, checks, exceptions, audit, periods };
-  }
-
-  const toCsvText = (rows: (string | number)[][]) =>
-    rows.map((row) => row.map((cell) => { const s = String(cell ?? ""); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; }).join(",")).join("\n");
-
-  function downloadCsv() {
-    if (!result) return;
-    const { summary, weekly, differences, checks, exceptions, audit, periods } = exportSheetRows();
-    const text = [toCsvText(summary), "", "WEEKLY SETTLEMENT", toCsvText(weekly), "", "WEEKLY PERIODS (by journey date)", toCsvText(periods), "", "WHERE DIFFERENCES OCCUR", toCsvText(differences), "", "CONTROL CHECKS", toCsvText(checks), "", "TICKETS TO REVIEW", toCsvText(exceptions), "", "PNR AUDIT", toCsvText(audit)].join("\n");
-    saveBlob(new Blob(["\uFEFF" + text], { type: "text/csv;charset=utf-8" }), `${fileStem()}.csv`);
   }
 
   function downloadXls() {
@@ -484,13 +471,12 @@ export default function Home() {
       }));
       return ws;
     };
-    XLSX.utils.book_append_sheet(wb, sheet(summary), "Summary");
-    XLSX.utils.book_append_sheet(wb, sheet(weekly), "Weekly settlement");
-    XLSX.utils.book_append_sheet(wb, sheet(periods), "Periods by journey date");
-    XLSX.utils.book_append_sheet(wb, sheet(differences), "Differences");
-    XLSX.utils.book_append_sheet(wb, sheet(exceptions), "Tickets to review");
-    XLSX.utils.book_append_sheet(wb, sheet(audit), "PNR audit");
-    XLSX.utils.book_append_sheet(wb, sheet(checks), "Control checks");
+    // Three plain tabs: the weekly settlement row (their FINAL tab), the
+    // per-PNR report answering every clarification column, and only the
+    // PNRs that still need attention.
+    XLSX.utils.book_append_sheet(wb, sheet((weekly as (string | number)[][]).concat([[""]], summary, [[""]], [["CONTROL CHECKS"]], checks)), "Weekly settlement");
+    XLSX.utils.book_append_sheet(wb, sheet(audit), "PNR wise report");
+    XLSX.utils.book_append_sheet(wb, sheet((exceptions as (string | number)[][]).concat([[""]], [["WHERE DIFFERENCES OCCUR"]], differences, [[""]], [["PERIODS BY JOURNEY DATE"]], periods)), "Tickets to review");
     XLSX.writeFile(wb, `${fileStem()}.xlsx`);
     setDownloaded(true);
   }
@@ -622,9 +608,7 @@ export default function Home() {
                 <button className="outline-btn" onClick={downloadXls} disabled={!result}>
                   <FileDown size={15} /> XLS
                 </button>
-                <button className="outline-btn" onClick={downloadCsv} disabled={!result}>
-                  <FileDown size={15} /> CSV
-                </button>
+
               </div>
             </div>
           </div>
@@ -851,7 +835,7 @@ export default function Home() {
                   </button>
                 </div>
                 {!result.audit.length && (
-                  <small className="audit-note">Restored from history — the joined audit is only kept in memory; re-upload the files or use the XLS/CSV export for the full grid.</small>
+                  <small className="audit-note">Restored from history — the joined audit is only kept in memory; re-upload the files or use the XLS export for the full grid.</small>
                 )}
                 {auditOpen && (
                   <>
@@ -863,7 +847,7 @@ export default function Home() {
                     />
                     <div className="audit-table">
                       <div className="audit-head">
-                        <span>PNR</span><span>Client</span><span>Vendor section</span><span>Vendor</span><span>Client ₹</span><span>Variance</span><span>Note</span>
+                        <span>PNR</span><span>Client</span><span>Vendor section</span><span>Cancel type</span><span>Fare diff</span><span>Comm diff</span><span>Offer diff</span><span>Charge diff</span><span>Variance</span><span>Note</span>
                       </div>
                       {result.audit
                         .filter((a) => !auditQuery || `${a.pnr} ${a.route} ${a.status} ${a.vendorSection}`.toLowerCase().includes(auditQuery.toLowerCase()))
@@ -873,14 +857,17 @@ export default function Home() {
                             <span>{a.pnr}{repeatPnrs.has(a.pnr) && <em className="repeat-badge">repeat</em>}</span>
                             <span>{a.clientType}</span>
                             <span>{a.vendorSection}</span>
-                            <span>{inr(a.vendorAmount)}</span>
-                            <span>{inr(a.clientAmount)}</span>
+                            <span>{a.cancelType}{a.rescheduled ? " · resched" : ""}</span>
+                            <span>{a.fareDiff === 0 ? "—" : signed(a.fareDiff)}</span>
+                            <span>{a.commDiff === 0 ? "—" : signed(a.commDiff)}</span>
+                            <span>{a.offerDiff === 0 ? "—" : signed(a.offerDiff)}</span>
+                            <span>{a.chargeDiff === 0 ? "—" : signed(a.chargeDiff)}</span>
                             <span className={a.variance === 0 ? "zero" : "nonzero"}>{signed(a.variance)}</span>
                             <span>{a.note || a.route || "—"}</span>
                           </div>
                         ))}
                     </div>
-                    <small className="audit-note">First 200 rows shown — the full audit is in the XLS/CSV export.</small>
+                    <small className="audit-note">First 200 rows shown — the full audit is in the XLS export.</small>
                   </>
                 )}
               </div>
