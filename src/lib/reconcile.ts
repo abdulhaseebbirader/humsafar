@@ -40,6 +40,27 @@ export type Reconciliation = {
     received: number;
     difference: number;
   };
+  // Their manual FINAL tab: one weekly settlement row per advice/ITS pair.
+  // Adjustment columns (Operator Offer, SRP, Sponsored, TDS, YourBus,
+  // SeatSeller/Recon adjustments) are hand-keyed in their sheet and have no
+  // source columns in the advice, so they stay 0 here.
+  weekly: {
+    vendorBooking: number;
+    itsBooking: number;
+    vendorComm: number;
+    itsComm: number;
+    vendorCancel: number;
+    busCancelled: number;
+    exceptional: number;
+    itsCancel: number;
+    itsCharges: number;
+    vendorCharges: number;
+    total: number;
+    received: number;
+    diff: number;
+    asPerIts: number;
+    paymentDiff: number;
+  };
   // Joined per-PNR audit — the same view their manual VLOOKUP columns produce.
   audit: {
     pnr: string;
@@ -930,6 +951,31 @@ export function reconcileCsv(vendorText: string, clientText: string, vendorName:
     { label: "Reporting period", status: client.clientPeriod && client.clientPeriod === vendor.period ? "matched" : "info", detail: `Vendor ${vendor.period}; client ${client.clientPeriod || "not stated"}.` },
   ];
 
+  const asPerIts = round(
+    clientBookedAmount -
+      clientBookedCommission -
+      clientCancelAmount +
+      clientCancelDebit -
+      vendorExceptionalTotal,
+  );
+  const weekly: Reconciliation["weekly"] = {
+    vendorBooking: round(vendorBookedAmount),
+    itsBooking: round(clientBookedAmount),
+    vendorComm: round(vendorBookedCommission),
+    itsComm: round(clientBookedCommission),
+    vendorCancel: round(vendorCancelAmount),
+    busCancelled: round(v.serviceCancel),
+    exceptional: round(vendorExceptionalTotal),
+    itsCancel: round(clientCancelAmount),
+    itsCharges: round(clientCancelDebit),
+    vendorCharges: round(vendorChargeAmount),
+    total: round(v.final),
+    received: receivable.received,
+    diff: receivable.difference,
+    asPerIts,
+    paymentDiff: round(asPerIts - receivable.received),
+  };
+
   return {
     source: { vendor: vendor.vendorStyle === "redbus" ? "RedBus" : vendor.vendorStyle === "abhibus" ? "AbhiBus" : "Vendor", vendorName, clientName, operator: vendor.operator, agent: client.agent || client.company, invoiceNo: vendor.invoiceNo, period: vendor.period, clientPeriod: client.clientPeriod, paymentDate: vendor.paymentDate },
     settlement: { vendorFinal: v.final, clientNet, gap: round(clientNet - v.final) },
@@ -937,6 +983,7 @@ export function reconcileCsv(vendorText: string, clientText: string, vendorName:
     differences,
     bridge,
     receivable,
+    weekly,
     audit,
     periods,
     checks,

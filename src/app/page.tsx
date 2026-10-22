@@ -404,7 +404,7 @@ export default function Home() {
   };
 
   function exportSheetRows() {
-    if (!result) return { summary: [] as string[][], differences: [] as string[][], checks: [] as string[][], exceptions: [] as string[][], audit: [] as string[][], periods: [] as string[][] };
+    if (!result) return { summary: [] as string[][], weekly: [] as string[][], differences: [] as string[][], checks: [] as string[][], exceptions: [] as string[][], audit: [] as string[][], periods: [] as string[][] };
     const s = result.source;
     const summary: string[][] = [
       ["HumsafarAI reconciliation"],
@@ -441,6 +441,16 @@ export default function Home() {
       ["PNR", "Category", "Issue", "Vendor", "Client", "Variance", "Detail", "Follow-up"],
       ...result.exceptions.map((e) => [e.pnr, e.category, e.issue, e.vendorAmount, e.clientAmount, e.variance, e.detail, askVendor(e)] as (string | number)[]),
     ] as string[][];
+    // Their FINAL tab: one weekly settlement row per advice/ITS pair.
+    const w = result.weekly;
+    const vname = result.source.vendor;
+    const periodParts = result.source.period.split(/\u2192|\u2013|\u2014|-/).map((s) => s.trim());
+    const weekly: (string | number)[][] = [
+      ["INV NO", "SETTAL DATE", "FROM", "TO", `${vname} BOOKING`, "ITS BOOKING", `${vname} COMM`, "ITS COMM", `${vname} Cancellation`, "Bus Cancelled", "Exceptional Refund", "ITS Cancellation", "ITS Cancellation Charges", `${vname} Cancellation Charges`, "Operator Offer", "GDS Commission", "SS partner comm w/ GST", "Reschedule", "SRP", "Sponsored Listing", "Dynamic charg", "TDS", "YourBus Charge", "SeatSeller Adjustments", "Recon Adjustments", "TOTAL", "Payment Received", "DIFF", "AS PER ITS", "PAYMNET DIFF"],
+      [result.source.invoiceNo, result.source.paymentDate, periodParts[0] ?? "", periodParts[periodParts.length - 1] ?? "", w.vendorBooking, w.itsBooking, w.vendorComm, w.itsComm, w.vendorCancel, w.busCancelled, w.exceptional, w.itsCancel, w.itsCharges, w.vendorCharges, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, w.total, w.received, w.diff, w.asPerIts, w.paymentDiff],
+      [],
+      ["Note", "Adjustment columns (Operator Offer, GDS, SS comm, Reschedule, SRP, Sponsored, Dynamic, TDS, YourBus, SeatSeller/Recon adjustments) are hand-keyed on the manual sheet and have no source columns in the advice — they are 0 here; fill them from the RedBus partner portal if needed."],
+    ];
     const audit: (string | number)[][] = [
       ["PNR", "Client row", "Vendor section", "Vendor", "Client", "Variance", "Ticket", "Route", "DOJ", "Settle date", "Vendor note", "Status"],
       ...result.audit.map((a) => [a.pnr, a.clientType, a.vendorSection, a.vendorAmount, a.clientAmount, a.variance, a.ticket, a.route, a.doj, a.settleDate, a.note, a.status] as (string | number)[]),
@@ -449,7 +459,7 @@ export default function Home() {
       ["Period", "Booked", "Cancelled", "Service cancel", "Charges", "Exceptional", "Edge", "Receivable", "Tickets"],
       ...result.periods.map((p) => [p.label, p.booked, p.cancel, p.serviceCancel, p.charges, p.exceptional, p.edge, p.receivable, p.tickets] as (string | number)[]),
     ];
-    return { summary, differences, checks, exceptions, audit, periods };
+    return { summary, weekly, differences, checks, exceptions, audit, periods };
   }
 
   const toCsvText = (rows: (string | number)[][]) =>
@@ -457,21 +467,29 @@ export default function Home() {
 
   function downloadCsv() {
     if (!result) return;
-    const { summary, differences, checks, exceptions, audit, periods } = exportSheetRows();
-    const text = [toCsvText(summary), "", "WEEKLY PERIODS", toCsvText(periods), "", "WHERE DIFFERENCES OCCUR", toCsvText(differences), "", "CONTROL CHECKS", toCsvText(checks), "", "TICKETS TO REVIEW", toCsvText(exceptions), "", "PNR AUDIT", toCsvText(audit)].join("\n");
+    const { summary, weekly, differences, checks, exceptions, audit, periods } = exportSheetRows();
+    const text = [toCsvText(summary), "", "WEEKLY SETTLEMENT", toCsvText(weekly), "", "WEEKLY PERIODS (by journey date)", toCsvText(periods), "", "WHERE DIFFERENCES OCCUR", toCsvText(differences), "", "CONTROL CHECKS", toCsvText(checks), "", "TICKETS TO REVIEW", toCsvText(exceptions), "", "PNR AUDIT", toCsvText(audit)].join("\n");
     saveBlob(new Blob(["\uFEFF" + text], { type: "text/csv;charset=utf-8" }), `${fileStem()}.csv`);
   }
 
   function downloadXls() {
     if (!result) return;
-    const { summary, differences, checks, exceptions, audit, periods } = exportSheetRows();
+    const { summary, weekly, differences, checks, exceptions, audit, periods } = exportSheetRows();
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(summary), "Summary");
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(periods), "Weekly periods");
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(differences), "Differences");
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(exceptions), "Tickets to review");
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(audit), "PNR audit");
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(checks), "Control checks");
+    const sheet = (rows: (string | number)[][]) => {
+      const ws = XLSX.utils.aoa_to_sheet(rows);
+      ws["!cols"] = (rows[0] ?? []).map((_, i) => ({
+        wch: Math.min(Math.max(10, ...rows.slice(0, 80).map((r) => String(r[i] ?? "").length)) + 2, 44),
+      }));
+      return ws;
+    };
+    XLSX.utils.book_append_sheet(wb, sheet(summary), "Summary");
+    XLSX.utils.book_append_sheet(wb, sheet(weekly), "Weekly settlement");
+    XLSX.utils.book_append_sheet(wb, sheet(periods), "Periods by journey date");
+    XLSX.utils.book_append_sheet(wb, sheet(differences), "Differences");
+    XLSX.utils.book_append_sheet(wb, sheet(exceptions), "Tickets to review");
+    XLSX.utils.book_append_sheet(wb, sheet(audit), "PNR audit");
+    XLSX.utils.book_append_sheet(wb, sheet(checks), "Control checks");
     XLSX.writeFile(wb, `${fileStem()}.xlsx`);
     setDownloaded(true);
   }
