@@ -462,9 +462,9 @@ export default function Home() {
     const periodParts = datedPeriod.split(/\s*(?:\u2192|\u2013|\u2014|\bto\b)\s*/i).map((s) => s.trim());
     const weekly: (string | number)[][] = [
       ["INV NO", "SETTAL DATE", "FROM", "TO", `${vname} BOOKING`, "ITS BOOKING", `${vname} COMM`, "ITS COMM", `${vname} Cancellation`, "Bus Cancelled", "Exceptional Refund", "ITS Cancellation", "ITS Cancellation Charges", `${vname} Cancellation Charges`, "Operator Offer", "GDS Commission", "SS partner comm w/ GST", "Reschedule", "SRP", "Sponsored Listing", "Dynamic charg", "TDS", "YourBus Charge", "SeatSeller Adjustments", "Recon Adjustments", "TOTAL", "Payment Received", "DIFF", "AS PER ITS", "PAYMNET DIFF"],
-      [result.source.invoiceNo, result.source.paymentDate, periodParts[0] ?? "", periodParts[periodParts.length - 1] ?? "", w.vendorBooking, w.itsBooking, w.vendorComm, w.itsComm, w.vendorCancel, w.busCancelled, w.exceptional, w.itsCancel, w.itsCharges, w.vendorCharges, 0, 0, 0, 0, 0, 0, 0, 0, w.yourbus, 0, 0, w.total, w.received, w.diff, w.asPerIts, w.paymentDiff],
+      [result.source.invoiceNo, result.source.paymentDate, periodParts[0] ?? "", periodParts[periodParts.length - 1] ?? "", w.vendorBooking, w.itsBooking, w.vendorComm, w.itsComm, w.vendorCancel, w.busCancelled, w.exceptional, w.itsCancel, w.itsCharges, w.vendorCharges, w.operatorOffer, w.gdsComm, w.ssComm, w.reschedExcess, 0, 0, 0, 0, w.yourbus, 0, 0, w.total, w.received, w.diff, w.asPerIts, w.paymentDiff],
       [],
-      ["Note", "YourBus Charge comes from the advice's own subscription tab when present. Other adjustment columns (Operator Offer, GDS, SS comm, Reschedule, SRP, Sponsored, Dynamic, TDS, SeatSeller/Recon adjustments) are hand-keyed on the manual sheet and stay 0 — fill them from the RedBus partner portal if needed."],
+      ["Note", "Operator Offer, GDS/SS commissions, Reschedule excess and YourBus Charge come straight from the advice. Remaining columns (SRP, Sponsored, Dynamic, TDS, SeatSeller/Recon adjustments) are hand-keyed on the manual sheet and stay 0 — fill them from the RedBus partner portal if needed."],
     ];
     const audit: (string | number)[][] = [
       ["PNR", "Ticket", "Route", "DOJ", "Settle date", "Client row", "Vendor section", "Cancel type", "Rescheduled", "Channel",

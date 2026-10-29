@@ -56,6 +56,10 @@ export type Reconciliation = {
     itsCharges: number;
     vendorCharges: number;
     yourbus: number;
+    operatorOffer: number;
+    gdsComm: number;
+    ssComm: number;
+    reschedExcess: number;
     total: number;
     received: number;
     diff: number;
@@ -198,6 +202,13 @@ type VendorTicket = {
   ticketType?: string;
   channel?: string;
   rescheduled?: boolean;
+  // Extra RedBus deduction columns carried per ticket: operator-funded offer,
+  // GDS / SS-partner / Rise commissions and reschedule excess.
+  oprOffer?: number;
+  gds?: number;
+  ss?: number;
+  rise?: number;
+  reschedX?: number;
 };
 
 function parseVendor(rows: string[][]) {
@@ -235,7 +246,7 @@ function parseVendor(rows: string[][]) {
         /^TIN$/i.test(cellAt(row, 0)) && /^PNR$/i.test(cellAt(row, 1)) && row.some((value) => /ticket\s*fare/i.test(value));
       const redTickets: Record<RedSection, VendorTicket[]> = { booked: [], cancel: [], busCancelled: [], exceptional: [] };
       let section: RedSection | null = null;
-      let cols = { pnr: 1, fare: -1, commission: -1, commissionGst: -1, others: -1, netPayable: -1, netReversed: -1, prevNetPaid: -1, refund: -1, cancelCharges: -1, reversal: -1, settle: -1, doj: -1, seats: -1, route: -1, typeof: -1, ticketType: -1, excReason: -1, resched: -1, channel: -1 };
+      let cols = { pnr: 1, fare: -1, commission: -1, commissionGst: -1, others: -1, netPayable: -1, netReversed: -1, prevNetPaid: -1, refund: -1, cancelCharges: -1, reversal: -1, settle: -1, doj: -1, seats: -1, route: -1, typeof: -1, ticketType: -1, excReason: -1, resched: -1, channel: -1, oprOffer: -1, gds: -1, ss: -1, rise: -1, reschedX: -1 };
       const applyRedHeader = (header: string[]) => {
         const find = (pattern: RegExp) => header.findIndex((value) => pattern.test(value.trim()));
         const settle = find(/^RED\s*BUS\s*SETTAL\s*DATE$/i);
@@ -263,6 +274,11 @@ function parseVendor(rows: string[][]) {
           excReason: find(/^Exceptional\s*$/i),
           resched: find(/^IsRescheduled$/i),
           channel: find(/^Sales\s*Channel$/i),
+          oprOffer: find(/^Operator\s*Offer$/i),
+          gds: find(/^GDS\s*Commission$/i),
+          ss: find(/^SS\s*partner\s*commission\s*with\s*GST$/i),
+          rise: find(/^Rise\s*Commission$/i),
+          reschedX: find(/^Reschedule\s*Excess\s*$/i),
         };
       };
       applyRedHeader(rows[adviceHeaderIndex]);
@@ -329,6 +345,11 @@ function parseVendor(rows: string[][]) {
           ticketType: section === "busCancelled" && cols.ticketType >= 0 ? cellAt(row, cols.ticketType) : undefined,
           channel: cols.channel >= 0 ? cellAt(row, cols.channel) : undefined,
           rescheduled: cols.resched >= 0 && /^true$/i.test(cellAt(row, cols.resched)) ? true : undefined,
+          oprOffer: cols.oprOffer >= 0 ? money(cellAt(row, cols.oprOffer)) : 0,
+          gds: cols.gds >= 0 ? money(cellAt(row, cols.gds)) : 0,
+          ss: cols.ss >= 0 ? money(cellAt(row, cols.ss)) : 0,
+          rise: cols.rise >= 0 ? money(cellAt(row, cols.rise)) : 0,
+          reschedX: cols.reschedX >= 0 ? money(cellAt(row, cols.reschedX)) : 0,
         };
         redTickets[section].push(ticket);
       }
@@ -343,6 +364,18 @@ function parseVendor(rows: string[][]) {
       const cancelCharges = total("cancel", (t) => t.charge ?? 0);
       const busReversed = total("busCancelled", (t) => t.net);
       const refunded = total("exceptional", (t) => t.net);
+      // Deductions RedBus applies outside NetPayable: the operator-funded
+      // offer, partner commissions and reschedule excess.
+      const extra = (pick: (t: VendorTicket) => number | undefined) =>
+        round((["booked", "cancel", "busCancelled", "exceptional"] as RedSection[]).reduce((acc, s) => acc + redTickets[s].reduce((a, t) => a + (pick(t) ?? 0), 0), 0));
+      const operatorOffer = extra((t) => t.oprOffer);
+      const gdsCommission = extra((t) => t.gds);
+      const ssCommission = extra((t) => t.ss);
+      const riseCommission = extra((t) => t.rise);
+      const reschedExcess = extra((t) => t.reschedX);
+      // `final` stays the advice's settled total (sections only); the offer /
+      // partner-commission extras are deductions RedBus bills on top of it and
+      // are subtracted in the receivable walk, not here.
       const final = round(netPayable - cancelReversed - busReversed - refunded - edge);
       return {
         operator: cellAt(rows[0], 0) || "RedBus payment advice",
@@ -355,7 +388,7 @@ function parseVendor(rows: string[][]) {
         // bookedCommission is the pre-GST figure for ITS comparison;
         // bookingPayable uses the GST-inclusive commission NetPayable is
         // built from.
-        summary: { booked, bookedCommission: commission, cancel: cancelReversed, serviceCancel: busReversed, charges: cancelCharges, exceptional: refunded, edgeGross: edge, edgeCommission: 0, edgePayable: edge, bookingPayable: round(booked - commissionGst), tds: 0, final },
+        summary: { booked, bookedCommission: commission, cancel: cancelReversed, serviceCancel: busReversed, charges: cancelCharges, exceptional: refunded, edgeGross: edge, edgeCommission: 0, edgePayable: edge, bookingPayable: round(booked - commissionGst), tds: 0, operatorOffer, gdsCommission, ssCommission, riseCommission, reschedExcess, gateway: 0, sms: 0, apiCommission: 0, final },
         amountSettled: final,
         tickets: { booked: redTickets.booked, cancel: redTickets.cancel, charges: [], exceptional: redTickets.exceptional, assured: [], busCancelled: redTickets.busCancelled },
       };
@@ -411,6 +444,16 @@ function parseVendor(rows: string[][]) {
     edgePayable: col(pick("G", /^Total$/), 6),
     bookingPayable: col(pick("A", /^Total$/), 6),
     tds: col(rows[totalInvoiceIndex], 4),
+    // Remaining lettered sections in the AbhiBus template: gateway bookings
+    // add to the payable; SMS charges and API commission are deducted.
+    gateway: col(pick("B", /^Total$/), 6),
+    sms: col(pick("C", /^Total$/), 6),
+    apiCommission: col(pick("D", /^Total$/), 6),
+    operatorOffer: 0,
+    gdsCommission: 0,
+    ssCommission: 0,
+    riseCommission: 0,
+    reschedExcess: 0,
     final: col(rows[totalInvoiceIndex], 6),
   };
   const settledRow = rows.find((row) => /^Amount Settled/i.test(label(row)));
@@ -826,6 +869,11 @@ export function reconcileCsv(vendorText: string, clientText: string, vendorName:
     recv("Bus cancelled reversals", -v.serviceCancel);
     recv("Exceptional refunds", -v.exceptional);
     recv("Other deductions", -v.edgePayable);
+    if (v.operatorOffer) recv("Operator offer funded by you", -v.operatorOffer);
+    if (v.gdsCommission) recv("GDS commission", -v.gdsCommission);
+    if (v.ssCommission) recv("SS partner commission (incl. GST)", -v.ssCommission);
+    if (v.riseCommission) recv("Rise commission", -v.riseCommission);
+    if (v.reschedExcess) recv("Reschedule excess", -v.reschedExcess);
   } else {
     recv("Booking", v.booked);
     recv("Booking commission", -v.bookedCommission);
@@ -836,6 +884,9 @@ export function reconcileCsv(vendorText: string, clientText: string, vendorName:
     recv("Post-journey service cancel", -v.serviceCancel);
     recv("Abhi Edge", -v.edgeGross);
     recv("Edge comm (10%)", v.edgeGross * 0.1);
+    if (v.gateway) recv("Gateway bookings", v.gateway);
+    if (v.sms) recv("SMS charges", -v.sms);
+    if (v.apiCommission) recv("API commission", -v.apiCommission);
     recv("Featured card deduction", 0);
     recv("Sponsorship deduction", 0);
   }
@@ -1034,7 +1085,16 @@ export function reconcileCsv(vendorText: string, clientText: string, vendorName:
       clientBookedCommission -
       clientCancelAmount +
       clientCancelDebit -
-      vendorExceptionalTotal,
+      vendorExceptionalTotal -
+      v.operatorOffer -
+      v.gdsCommission -
+      v.ssCommission -
+      v.riseCommission -
+      v.reschedExcess -
+      v.sms -
+      v.apiCommission +
+      v.gateway -
+      (options.yourbus ?? 0),
   );
   const weekly: Reconciliation["weekly"] = {
     vendorBooking: round(vendorBookedAmount),
@@ -1048,6 +1108,10 @@ export function reconcileCsv(vendorText: string, clientText: string, vendorName:
     itsCharges: round(clientCancelDebit),
     vendorCharges: round(vendorChargeAmount),
     yourbus: round(options.yourbus ?? 0),
+    operatorOffer: round(v.operatorOffer),
+    gdsComm: round(v.gdsCommission),
+    ssComm: round(v.ssCommission),
+    reschedExcess: round(v.reschedExcess),
     total: round(v.final),
     received: receivable.received,
     diff: receivable.difference,
