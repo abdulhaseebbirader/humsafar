@@ -499,9 +499,9 @@ export default function Home() {
   const step1Done = Boolean(vendor && client);
   const step2Done = Boolean(result);
   const steps = [
-    { n: "01", label: "Load evidence", state: step1Done ? "done" : "active" },
-    { n: "02", label: "Reconcile", state: step2Done ? "done" : loading ? "active" : "idle" },
-    { n: "03", label: "Share result", state: downloaded ? "done" : step2Done ? "active" : "idle" },
+    { n: "01", label: "Upload files", state: step1Done ? "done" : "active" },
+    { n: "02", label: "See the result", state: step2Done ? "done" : loading ? "active" : "idle" },
+    { n: "03", label: "Download report", state: downloaded ? "done" : step2Done ? "active" : "idle" },
   ];
 
   return (
@@ -533,43 +533,46 @@ export default function Home() {
       </header>
 
       <section className="hero">
-        <span className="eyebrow">PAYMENT ADVICE / CONTROL ROOM</span>
-        <h1>Follow the money.</h1>
-        <p>Your ledger against the vendor&apos;s invoice, ticket by ticket.</p>
+        <span className="eyebrow">WEEKLY SETTLEMENT RECONCILIATION</span>
+        <h1>What should you receive — and what did you actually get?</h1>
+        <p>Upload the vendor&apos;s weekly payment advice and your ITS report. We match every PNR and show where each rupee was deducted, and why.</p>
       </section>
 
       <section className="workspace">
         <div className="panel upload-panel">
           <div className="panel-head">
-            <span className="kicker">01 · Load evidence</span>
-            <h2>Bring the two sides together.</h2>
+            <span className="kicker">01 · Upload files</span>
+            <h2>Two files, one answer.</h2>
             <p className="lead">
-              Upload the vendor&apos;s payment advice as CSV or XLS and your own client transaction report as CSV or XLS. HumsafarAI matches
-              every ticket by PNR and builds the bridge from your ledger to the vendor&apos;s settlement.
+              Upload the vendor&apos;s payment advice (RedBus / AbhiBus) and your ITS transaction report. The app matches every ticket by PNR
+              and explains each deduction the vendor applied.
             </p>
           </div>
           <div className="file-stack">
             <FileBox kind="vendor" files={vendor} onChange={chooseVendor} />
             <FileBox kind="client" files={client} onChange={chooseClient} />
           </div>
-          <div className="options-grid">
-            <label className="option-field">
-              <span>Amount received (bank)</span>
-              <input type="text" inputMode="decimal" placeholder="e.g. 786171" value={receivedInput} onChange={(e) => setReceivedInput(e.target.value)} onBlur={reconcile} />
-            </label>
-            <label className="option-field">
-              <span>Featured card deduction</span>
-              <input type="text" inputMode="decimal" placeholder="0" value={featuredInput} onChange={(e) => setFeaturedInput(e.target.value)} onBlur={reconcile} />
-            </label>
-            <label className="option-field">
-              <span>Sponsorship deduction</span>
-              <input type="text" inputMode="decimal" placeholder="0" value={sponsorInput} onChange={(e) => setSponsorInput(e.target.value)} onBlur={reconcile} />
-            </label>
-            <label className="option-field option-check">
-              <input type="checkbox" checked={shareCharges} onChange={(e) => setShareCharges(e.target.checked)} />
-              <span>Share cancellation charges 50% (AbhiBus)</span>
-            </label>
-          </div>
+          <details className="options-details">
+            <summary>Optional inputs — bank amount received &amp; promo deductions</summary>
+            <div className="options-grid">
+              <label className="option-field">
+                <span>Amount received (bank)</span>
+                <input type="text" inputMode="decimal" placeholder="e.g. 786171" value={receivedInput} onChange={(e) => setReceivedInput(e.target.value)} onBlur={reconcile} />
+              </label>
+              <label className="option-field">
+                <span>Featured card deduction</span>
+                <input type="text" inputMode="decimal" placeholder="0" value={featuredInput} onChange={(e) => setFeaturedInput(e.target.value)} onBlur={reconcile} />
+              </label>
+              <label className="option-field">
+                <span>Sponsorship deduction</span>
+                <input type="text" inputMode="decimal" placeholder="0" value={sponsorInput} onChange={(e) => setSponsorInput(e.target.value)} onBlur={reconcile} />
+              </label>
+              <label className="option-field option-check">
+                <input type="checkbox" checked={shareCharges} onChange={(e) => setShareCharges(e.target.checked)} />
+                <span>Share cancellation charges 50% (AbhiBus)</span>
+              </label>
+            </div>
+          </details>
           {error && <div className="error-box">{error}</div>}
           <div className="upload-actions">
             <button onClick={reconcile} disabled={!canRun || loading} className="run-btn">
@@ -583,20 +586,20 @@ export default function Home() {
                 </>
               )}
             </button>
-            {!canRun && <span className="hint">Upload the vendor CSV and client CSV/XLS file to generate a reconciliation result.</span>}
+            {!canRun && <span className="hint">Upload both files — the reconciliation runs automatically.</span>}
             {canRun && loading && <span className="hint">Both files received — reconciling automatically.</span>}
           </div>
           <div className="panel-note">
             <ShieldCheck size={15} />
             <p>
-              <strong>Evidence first.</strong> Files are read in your browser; every total is tied back to a source row.
+              Files never leave your browser. Every total is tied back to a source row in the files.
             </p>
           </div>
         </div>
 
         <div className="panel result-panel" ref={resultRef}>
           <div className="result-header">
-            <span className="kicker">02 · Reconciliation result</span>
+            <span className="kicker">02 · Result</span>
             <div className="result-actions">
               <span className="confidence">
                 <span className="live-dot" />{" "}
@@ -644,43 +647,30 @@ export default function Home() {
               </div>
               <div className="hero-total">
                 <div>
-                  <span className="label">VENDOR SETTLES</span>
+                  <span className="label">WHAT ITS SAYS YOU SHOULD RECEIVE</span>
+                  <div className="amount expect">{inr(result.settlement.clientNet)}</div>
+                  <span className="label" style={{ marginTop: 10 }}>WHAT {result.source.vendor.toUpperCase()} ACTUALLY PAYS</span>
                   <div className="amount">{inr(result.settlement.vendorFinal)}</div>
                   <p>
-                    client ledger expects <b>{inr(result.settlement.clientNet)}</b> · gap{" "}
-                    <b>{signed(result.settlement.gap)}</b>
+                    deduction gap <b>{signed(result.settlement.gap)}</b>
                   </p>
                 </div>
                 <div className={`verified ${reviewCount ? "needs-review" : ""}`}>
                   {reviewCount ? (
                     <>
-                      <AlertTriangle size={15} /> {reviewCount} to review
+                      <AlertTriangle size={15} /> {reviewCount} PNRs to review
                     </>
                   ) : (
                     <>
-                      <Check size={17} /> reconciled
+                      <Check size={17} /> fully reconciled
                     </>
                   )}
                 </div>
               </div>
               <div className="bridge">
                 <div className="bridge-title">
-                  <span>SETTLEMENT BRIDGE</span>
-                  <span className="mono">client ledger → vendor final</span>
-                </div>
-                {result.bridge.map((item, i) => (
-                  <div className={`bridge-row ${item.kind}`} key={i}>
-                    <span>{item.label}</span>
-                    <strong>
-                      {item.kind === "base" || item.kind === "final" ? inr(item.amount) : signed(item.amount)}
-                    </strong>
-                  </div>
-                ))}
-              </div>
-              <div className="bridge">
-                <div className="bridge-title">
-                  <span>NET RECEIVABLE</span>
-                  <span className="mono">manual summary-sheet formula</span>
+                  <span>WHERE THE MONEY WAS DEDUCTED</span>
+                  <span className="mono">from the vendor&apos;s own advice</span>
                 </div>
                 {result.receivable.rows.map((item, i) => (
                   <div className={`bridge-row ${item.amount < 0 ? "deduction" : "addition"}`} key={i}>
@@ -689,7 +679,7 @@ export default function Home() {
                   </div>
                 ))}
                 <div className="bridge-row base">
-                  <span>Net receivable</span>
+                  <span>Should have been received</span>
                   <strong>{inr(result.receivable.receivable)}</strong>
                 </div>
                 <div className="bridge-row deduction">
@@ -706,12 +696,23 @@ export default function Home() {
                     <strong>{signed(carriedForward.difference)}</strong>
                   </div>
                 )}
+                <details className="bridge-details">
+                  <summary>Ledger walkthrough (ITS → vendor final)</summary>
+                  {result.bridge.map((item, i) => (
+                    <div className={`bridge-row ${item.kind}`} key={i}>
+                      <span>{item.label}</span>
+                      <strong>
+                        {item.kind === "base" || item.kind === "final" ? inr(item.amount) : signed(item.amount)}
+                      </strong>
+                    </div>
+                  ))}
+                </details>
               </div>
               {result.periods.length > 0 && (
                 <div className="bridge">
                   <div className="bridge-title">
-                    <span>WEEKLY PERIODS</span>
-                    <span className="mono">bucketed by journey date</span>
+                    <span>WEEKS COVERED</span>
+                    <span className="mono">by journey date — incl. earlier weeks settled now</span>
                   </div>
                   <div className="period-grid">
                     {result.periods.map((p) => (
@@ -749,15 +750,15 @@ export default function Home() {
                   <small>{result.coverage.clientCancellations} in client ledger</small>
                 </div>
                 <div className="metric-card">
-                  <span className="label">TICKETS TO REVIEW</span>
+                  <span className="label">PNRs TO REVIEW</span>
                   <strong>{result.exceptionTotal.toLocaleString("en-IN")}</strong>
                   <small>per-PNR differences</small>
                 </div>
               </div>
               <div className="differences">
                 <div className="subhead">
-                  <span>WHERE DIFFERENCES OCCUR</span>
-                  <span className="mono">vendor ↔ client</span>
+                  <span>WHAT DOESN&apos;T MATCH</span>
+                  <span className="mono">vendor ↔ ITS, by category</span>
                 </div>
                 {result.differences.map((item, i) => (
                   <div className="difference-row" key={i}>
@@ -778,9 +779,9 @@ export default function Home() {
               </div>
               <div className="exceptions">
                 <div className="subhead">
-                  <span>TICKETS TO REVIEW</span>
+                  <span>PNRs NEEDING ATTENTION</span>
                   <span className="mono">
-                    {result.exceptionTotal.toLocaleString("en-IN")} total PNR findings
+                    {result.exceptionTotal.toLocaleString("en-IN")} total
                   </span>
                 </div>
                 {result.exceptions.length === 0 ? (
@@ -829,8 +830,8 @@ export default function Home() {
               </div>
               <div className="audit">
                 <div className="subhead">
-                  <span>PNR AUDIT</span>
-                  <span className="mono">{result.audit.length.toLocaleString("en-IN")} joined rows</span>
+                  <span>EVERY PNR — WHAT HAPPENED</span>
+                  <span className="mono">{result.audit.length.toLocaleString("en-IN")} tickets matched</span>
                   <button className="outline-btn audit-toggle" onClick={() => setAuditOpen((v) => !v)} disabled={!result.audit.length}>
                     {auditOpen ? "Hide" : "Show"}
                   </button>
@@ -872,15 +873,15 @@ export default function Home() {
                   </>
                 )}
               </div>
-              <div className="checks">
-                <div className="subhead">
-                  <span>CONTROL CHECKS</span>
-                  <span className="mono">source / calculated / variance</span>
-                </div>
+              <details className="checks checks-details">
+                <summary className="subhead">
+                  <span>SANITY CHECKS</span>
+                  <span className="mono">totals cross-verified against the files</span>
+                </summary>
                 {result.checks.map((item, i) => (
                   <CheckRow item={item} key={i} />
                 ))}
-              </div>
+              </details>
             </div>
           ) : loading ? (
             <ResultSkeleton />
