@@ -82,6 +82,28 @@ async function readAsCsv(file: File) {
   return XLSX.utils.sheet_to_csv(workbook.Sheets[sheetName], { blankrows: true });
 }
 
+// RedBus .xls advices carry a second tab, "YourBus Subscription Detail": the
+// device-subscription charge RedBus deducts on top of the per-PNR settlement.
+// Its last numeric value in the "Total Subscription Value" column is the
+// grand total. Returns undefined for CSV uploads or files without the tab.
+async function readYourBusCharge(file: File) {
+  if (!/\.xlsx?$/i.test(file.name)) return undefined;
+  try {
+    const workbook = XLSX.read(await file.arrayBuffer(), { type: "array" });
+    const sheetName = workbook.SheetNames.find((name) => /yourbus subscription/i.test(name));
+    if (!sheetName) return undefined;
+    const rows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1, defval: "" }) as (string | number)[][];
+    let total = 0;
+    for (const row of rows) {
+      const value = Number(row[8]);
+      if (Number.isFinite(value)) total = value;
+    }
+    return total > 0 ? total : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function CheckRow({ item }: { item: Reconciliation["checks"][number] }) {
   const matched = item.status === "matched";
   const info = item.status === "info";
@@ -160,8 +182,8 @@ export default function Home() {
       if (vendor.length !== client.length) setError(`${Math.max(vendor.length, client.length) - pairs} unpaired file(s) skipped — upload one client file per vendor advice.`);
       const out: Reconciliation[] = [];
       for (let i = 0; i < pairs; i++) {
-        const [vendorText, clientText] = await Promise.all([readAsCsv(vendor[i]), readAsCsv(client[i])]);
-        out.push(reconcileCsv(vendorText, clientText, vendor[i].name, client[i].name, reconcileOptions));
+        const [vendorText, clientText, yourbus] = await Promise.all([readAsCsv(vendor[i]), readAsCsv(client[i]), readYourBusCharge(vendor[i])]);
+        out.push(reconcileCsv(vendorText, clientText, vendor[i].name, client[i].name, { ...reconcileOptions, yourbus }));
       }
       // A newer file selection supersedes this run; only the latest pair wins.
       if (generation !== inFlight.current) return;
@@ -440,9 +462,9 @@ export default function Home() {
     const periodParts = datedPeriod.split(/\s*(?:\u2192|\u2013|\u2014|\bto\b)\s*/i).map((s) => s.trim());
     const weekly: (string | number)[][] = [
       ["INV NO", "SETTAL DATE", "FROM", "TO", `${vname} BOOKING`, "ITS BOOKING", `${vname} COMM`, "ITS COMM", `${vname} Cancellation`, "Bus Cancelled", "Exceptional Refund", "ITS Cancellation", "ITS Cancellation Charges", `${vname} Cancellation Charges`, "Operator Offer", "GDS Commission", "SS partner comm w/ GST", "Reschedule", "SRP", "Sponsored Listing", "Dynamic charg", "TDS", "YourBus Charge", "SeatSeller Adjustments", "Recon Adjustments", "TOTAL", "Payment Received", "DIFF", "AS PER ITS", "PAYMNET DIFF"],
-      [result.source.invoiceNo, result.source.paymentDate, periodParts[0] ?? "", periodParts[periodParts.length - 1] ?? "", w.vendorBooking, w.itsBooking, w.vendorComm, w.itsComm, w.vendorCancel, w.busCancelled, w.exceptional, w.itsCancel, w.itsCharges, w.vendorCharges, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, w.total, w.received, w.diff, w.asPerIts, w.paymentDiff],
+      [result.source.invoiceNo, result.source.paymentDate, periodParts[0] ?? "", periodParts[periodParts.length - 1] ?? "", w.vendorBooking, w.itsBooking, w.vendorComm, w.itsComm, w.vendorCancel, w.busCancelled, w.exceptional, w.itsCancel, w.itsCharges, w.vendorCharges, 0, 0, 0, 0, 0, 0, 0, 0, w.yourbus, 0, 0, w.total, w.received, w.diff, w.asPerIts, w.paymentDiff],
       [],
-      ["Note", "Adjustment columns (Operator Offer, GDS, SS comm, Reschedule, SRP, Sponsored, Dynamic, TDS, YourBus, SeatSeller/Recon adjustments) are hand-keyed on the manual sheet and have no source columns in the advice — they are 0 here; fill them from the RedBus partner portal if needed."],
+      ["Note", "YourBus Charge comes from the advice's own subscription tab when present. Other adjustment columns (Operator Offer, GDS, SS comm, Reschedule, SRP, Sponsored, Dynamic, TDS, SeatSeller/Recon adjustments) are hand-keyed on the manual sheet and stay 0 — fill them from the RedBus partner portal if needed."],
     ];
     const audit: (string | number)[][] = [
       ["PNR", "Ticket", "Route", "DOJ", "Settle date", "Client row", "Vendor section", "Cancel type", "Rescheduled", "Channel",

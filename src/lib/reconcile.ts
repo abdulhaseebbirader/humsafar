@@ -55,6 +55,7 @@ export type Reconciliation = {
     itsCancel: number;
     itsCharges: number;
     vendorCharges: number;
+    yourbus: number;
     total: number;
     received: number;
     diff: number;
@@ -603,6 +604,9 @@ export type ReconcileOptions = {
   // vendor advice.
   featuredCard?: number;
   sponsorship?: number;
+  // YourBus device-subscription charge, read from the RedBus advice's own
+  // "YourBus Subscription Detail" sheet when the vendor file is an .xls.
+  yourbus?: number;
   // AbhiBus shares cancellation charges 50/50 (their SHERING 50% column).
   shareCharges?: boolean;
 };
@@ -853,6 +857,9 @@ export function reconcileCsv(vendorText: string, clientText: string, vendorName:
     if (idx >= 0) receivableRows[idx].amount = -Math.abs(options.sponsorship);
     else receivableRows.push({ label: "Sponsorship deduction", amount: -Math.abs(options.sponsorship) });
   }
+  if (options.yourbus) {
+    receivableRows.push({ label: "YourBus subscription charge", amount: -Math.abs(options.yourbus) });
+  }
   const receivableTotal = round(sum(receivableRows, (r) => r.amount));
   const amountReceived = options.received !== undefined && options.received > 0 ? options.received : vendor.amountSettled || v.final;
   const receivable = {
@@ -1040,6 +1047,7 @@ export function reconcileCsv(vendorText: string, clientText: string, vendorName:
     itsCancel: round(clientCancelAmount),
     itsCharges: round(clientCancelDebit),
     vendorCharges: round(vendorChargeAmount),
+    yourbus: round(options.yourbus ?? 0),
     total: round(v.final),
     received: receivable.received,
     diff: receivable.difference,
