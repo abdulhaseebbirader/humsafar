@@ -22,8 +22,8 @@ function renderReport(doc: PDFKit.PDFDocument, result: Reconciliation) {
   doc.on("pageAdded", drawHeader);
   drawHeader();
   doc.y = 76;
-  doc.fillColor(navy).font(bold).fontSize(27).text("Settlement reconciliation");
-  doc.moveDown(0.25).fillColor(muted).font(regular).fontSize(10).text("Client transaction report compared with the vendor payment advice, matched by PNR.", { width: 470 });
+  doc.fillColor(navy).font(bold).fontSize(27).text("Weekly settlement reconciliation");
+  doc.moveDown(0.25).fillColor(muted).font(regular).fontSize(10).text("What ITS says you should receive, what the vendor actually pays, and where every rupee was deducted — matched PNR by PNR.", { width: 470 });
   doc.moveDown(1.05);
 
   const metaY = doc.y;
@@ -36,26 +36,26 @@ function renderReport(doc: PDFKit.PDFDocument, result: Reconciliation) {
   const heroY = doc.y;
   const reviewCount = result.differences.filter(item => item.status === "review").length + result.checks.filter(item => item.status === "review").length;
   doc.roundedRect(44, heroY, 507, 108, 9).fill(navy);
-  label("Vendor settles", 62, heroY + 18); doc.fillColor("#ffffff").font(bold).fontSize(27).text(inr(result.settlement.vendorFinal), 62, heroY + 35);
-  doc.fillColor("#b7dfd6").font(regular).fontSize(9).text(`Client ledger expects ${inr(result.settlement.clientNet)}  ·  gap ${moneyWithSign(result.settlement.gap)}`, 63, heroY + 78, { width: 300 });
+  label("ITS says you should receive", 62, heroY + 16); doc.fillColor("#b7dfd6").font(bold).fontSize(15).text(inr(result.settlement.clientNet), 62, heroY + 33);
+  label(`${result.source.vendor} actually pays`, 62, heroY + 58); doc.fillColor("#ffffff").font(bold).fontSize(25).text(inr(result.settlement.vendorFinal), 62, heroY + 74);
   doc.roundedRect(398, heroY + 20, 125, 25, 12).fill(mint); doc.fillColor(reviewCount ? red : teal).font(bold).fontSize(7.2).text(reviewCount ? `${reviewCount} TO REVIEW` : "RECONCILED", 407, heroY + 29, { width: 107, align: "center" });
-  doc.fillColor("#b7dfd6").font(regular).fontSize(8).text("Review any item marked REVIEW before external submission.", 325, heroY + 78, { width: 195, align: "right" });
+  doc.fillColor("#b7dfd6").font(bold).fontSize(9).text(`Deduction gap ${moneyWithSign(result.settlement.gap)}`, 325, heroY + 78, { width: 195, align: "right" });
   doc.y = heroY + 130;
 
-  section("01", "Settlement bridge");
-  result.bridge.forEach(item => tableRow(item.label, item.kind === "base" || item.kind === "final" ? inr(item.amount) : moneyWithSign(item.amount), item.kind === "final"));
-
-  section("02", "Net receivable (manual formula)");
+  section("01", "Where the money was deducted");
   result.receivable.rows.forEach(item => tableRow(item.label, moneyWithSign(item.amount)));
-  tableRow("Net receivable", inr(result.receivable.receivable), true);
+  tableRow("Should have been received", inr(result.receivable.receivable), true);
   tableRow("Actually received", inr(result.receivable.received));
   tableRow("DIFF", moneyWithSign(result.receivable.difference), true);
+
+  section("02", "Ledger walkthrough (ITS → vendor final)");
+  result.bridge.forEach(item => tableRow(item.label, item.kind === "base" || item.kind === "final" ? inr(item.amount) : moneyWithSign(item.amount), item.kind === "final"));
 
   section("03", "Ticket coverage");
   const c = result.coverage;
   [["Booked tickets matched by PNR", `${c.matchedBookings.toLocaleString("en-IN")} of ${c.vendorBookings.toLocaleString("en-IN")}`], ["Booked tickets only in vendor advice", c.vendorOnlyBookings.toLocaleString("en-IN")], ["Booked tickets only in client ledger", c.clientOnlyBookings.toLocaleString("en-IN")], ["Cancellations matched by PNR", `${c.matchedCancellations} of ${c.vendorCancellations}`], ["Cancellations in client ledger", c.clientCancellations.toLocaleString("en-IN")]].forEach(([left, right]) => tableRow(left, right));
 
-  section("04", "Where differences occur");
+  section("04", "What doesn't match — vendor vs ITS");
   const headY = doc.y;
   doc.roundedRect(50, headY - 3, 495, 18, 4).fill(paper);
   doc.fillColor(muted).font(bold).fontSize(7).text("COMPARISON", 58, headY + 2, { width: 180, characterSpacing: 0.8 });
@@ -84,7 +84,7 @@ function renderReport(doc: PDFKit.PDFDocument, result: Reconciliation) {
     doc.moveDown(0.4);
   });
 
-  section("05", "Tickets to review");
+  section("05", "PNRs needing attention");
   const shown = result.exceptions;
   if (!shown.length) {
     doc.fillColor(muted).font(regular).fontSize(9).text("Every ticket matches on PNR, amount, commission and edge offer.");
@@ -100,8 +100,13 @@ function renderReport(doc: PDFKit.PDFDocument, result: Reconciliation) {
   });
   doc.fillColor(muted).font(regular).fontSize(8.5).text(`${result.exceptionTotal.toLocaleString("en-IN")} PNR-level findings are included above. Each finding was compared against the matching vendor and client rows.`);
 
-  section("06", "Control checks");
+  section("06", "Sanity checks");
   result.checks.forEach(check => { if (doc.y > 720) newPage(); const color = check.status === "matched" ? teal : check.status === "info" ? amber : red; doc.fillColor(color).font(bold).fontSize(9.5).text(`${check.status.toUpperCase()}  ·  ${check.label}`); doc.fillColor(muted).font(regular).fontSize(8.5).text(check.detail, { width: 470 }); doc.moveDown(0.6); });
+
+  if (result.periods.length) {
+    section("07", "Weeks covered");
+    result.periods.forEach(p => tableRow(`${p.label} · ${p.tickets} tickets`, inr(p.receivable)));
+  }
 
   doc.moveDown(0.5); if (doc.y > 720) newPage(); const shareY = doc.y; doc.roundedRect(44, shareY, 507, 50, 6).fillAndStroke(mint, "#c7e8df"); doc.fillColor(teal).font(bold).fontSize(8.5).text("SHARE NOTE", 58, shareY + 11); doc.fillColor(ink).font(regular).fontSize(8.5).text("This report preserves the source-to-calculation trail so the settlement answer can be reviewed without reopening the source files.", 140, shareY + 10, { width: 390, height: 30 }); doc.y = shareY + 58;
 

@@ -487,19 +487,32 @@ export default function Home() {
     if (!result) return;
     const { summary, weekly, differences, checks, exceptions, audit, periods } = exportSheetRows();
     const wb = XLSX.utils.book_new();
-    const sheet = (rows: (string | number)[][]) => {
+    const sheet = (rows: (string | number)[][], filterRow = -1) => {
       const ws = XLSX.utils.aoa_to_sheet(rows);
       ws["!cols"] = (rows[0] ?? []).map((_, i) => ({
         wch: Math.min(Math.max(10, ...rows.slice(0, 80).map((r) => String(r[i] ?? "").length)) + 2, 44),
       }));
+      // Money cells get a 2-decimal Indian-style format so the spreadsheet
+      // shows them as amounts, not raw numbers.
+      const ref = XLSX.utils.decode_range(ws["!ref"] ?? "A1");
+      for (let r = filterRow >= 0 ? filterRow + 1 : 1; r <= ref.e.r; r++) {
+        for (let c = ref.s.c; c <= ref.e.c; c++) {
+          const cell = ws[XLSX.utils.encode_cell({ r, c })];
+          if (cell && cell.t === "n") cell.z = "#,##0.00";
+        }
+      }
+      if (filterRow >= 0) {
+        const width = (rows[filterRow] ?? []).length - 1;
+        if (width > 0) ws["!autofilter"] = { ref: `${XLSX.utils.encode_col(0)}${filterRow + 1}:${XLSX.utils.encode_col(width)}${ref.e.r + 1}` };
+      }
       return ws;
     };
     // Three plain tabs: the weekly settlement row (their FINAL tab), the
     // per-PNR report answering every clarification column, and only the
     // PNRs that still need attention.
     XLSX.utils.book_append_sheet(wb, sheet((weekly as (string | number)[][]).concat([[""]], summary, [[""]], [["CONTROL CHECKS"]], checks)), "Weekly settlement");
-    XLSX.utils.book_append_sheet(wb, sheet(audit), "PNR wise report");
-    XLSX.utils.book_append_sheet(wb, sheet((exceptions as (string | number)[][]).concat([[""]], [["WHERE DIFFERENCES OCCUR"]], differences, [[""]], [["PERIODS BY JOURNEY DATE"]], periods)), "Tickets to review");
+    XLSX.utils.book_append_sheet(wb, sheet(audit, 0), "PNR wise report");
+    XLSX.utils.book_append_sheet(wb, sheet((exceptions as (string | number)[][]).concat([[""]], [["WHERE DIFFERENCES OCCUR"]], differences, [[""]], [["PERIODS BY JOURNEY DATE"]], periods), 0), "Tickets to review");
     XLSX.writeFile(wb, `${fileStem()}.xlsx`);
     setDownloaded(true);
   }
